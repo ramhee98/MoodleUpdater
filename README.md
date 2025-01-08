@@ -107,11 +107,8 @@ Use this tool at your own risk. Ensure you have proper backups and permissions b
 ## Author
 
 Developed by [ramhee98](https://github.com/ramhee98). For questions or suggestions, feel free to open an issue in the repository.
-```
 
 ### Highlights:
 - The **Features** and **Usage** sections match the script's functionality.
 - Multithreading is emphasized as a key benefit.
 - Prompts and outputs are explained clearly.
-
-You can directly copy this into a `README.md` file for your project repository. Let me know if you'd like further adjustments! 🚀

@@ -25,7 +25,7 @@
 
 - **Operating System**: Linux-based (e.g., Ubuntu)
 - **Dependencies**:
-  - Python 3
+  - `python3`
   - `rsync`
   - `mysqldump` (MySQL or MariaDB tools)
   - `git`
@@ -42,7 +42,7 @@
 2. Ensure required dependencies are installed:
    ```bash
    sudo apt update
-   sudo apt install rsync mysql-client git
+   sudo apt install python3 rsync mysql-client git
    ```
 
 3. Make the script executable (optional):

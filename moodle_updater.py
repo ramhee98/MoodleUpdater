@@ -225,7 +225,7 @@ def main():
         if not confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
             customconfigphppath = input("Please enter a config.php path [press enter to skip]: ")
             if customconfigphppath:
-                with open(configphppath, 'r') as file:
+                with open(customconfigphppath, 'r') as file:
                     configphp = file.read()
             else:
                 print("Restore of old config.php skipped!")

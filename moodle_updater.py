@@ -13,7 +13,7 @@ runtime_clone = None
 # Function to load configfile
 def load_config(config_path):
     """Load configuration from a file."""
-    config = configparser.ConfigParser(interpolation=None)  # Disable interpolation
+    config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
     return config
 
@@ -27,7 +27,6 @@ def confirm(question, default=''):
         option += " Default=" + default
 
     while True:
-        # user_input = input(f"{question}: ").lower()
         user_input = input(f"{question} {option}: ").lower()
 
         if user_input in ['y', 'n']:
@@ -71,7 +70,7 @@ def f_dir_backup(path, moodle, full_backup):
     print(f"Backup of {path} was successfully saved in {backup_folder}")
 
     end = time.time()
-    runtime_backup = int(end - start)  # Convert to integer seconds
+    runtime_backup = int(end - start)
 
 # Function to perform database dump
 def f_db_dump(dbname, dbuser, dbpass, verbose, pwd):
@@ -132,7 +131,7 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
     print("finished git clone processs")
 
     end = time.time()
-    runtime_clone = int(end - start)  # Convert to integer seconds
+    runtime_clone = int(end - start)
 
 # Function to perform directory backup and git clone
 def f_dir_backup_git_clone(path, moodle, config_php, full_backup, configphp, repo, branch, sync_submodules):
@@ -144,9 +143,7 @@ def f_dir_backup_git_clone(path, moodle, config_php, full_backup, configphp, rep
 
 # Main function to orchestrate script steps
 def main():
-    global runtime_backup
-    global runtime_dump
-    global runtime_clone
+    global runtime_backup, runtime_dump, runtime_clone
 
     # Load configuration
     pwd = os.getcwd()

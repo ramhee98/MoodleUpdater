@@ -193,8 +193,8 @@ def main():
 
     if db_dump:
         print("----------- Prepare database dump process ----------------------------------------------------------")
-        dbname = 'moodle'
-        dbuser = 'root'
+        dbname = config.get('database', 'db_name', fallback='moodle')
+        dbuser = config.get('database', 'db_user', fallback='root')
 
         if not confirm(f"Use DB {dbname}?", "y"):
             dbname = input("Please enter DB name: ")

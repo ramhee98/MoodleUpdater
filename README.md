@@ -56,6 +56,8 @@
    - **branch**: Branch of the Moodle repository to checkout.
    - **path**: Path to the directory where Moodle is installed.
    - **moodle**: Name of the Moodle folder within the specified path.
+   - **db_name**: Name of the Moodle database.
+   - **db_user**: Database username used for DB dump.
 
    Edit the provided `config.ini` to match your Moodle setup:
    ```ini
@@ -64,6 +66,9 @@
    branch = MOODLE_404_STABLE
    path = /var/www/moodle
    moodle = moodle
+   [database]
+   db_name = moodle
+   db_user = root
    ```
 
 4. Make the script executable (optional):

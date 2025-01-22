@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import time
 import threading
+import apt
 
 runtime_backup = None
 runtime_dump = None
@@ -168,7 +169,7 @@ def main():
         print("Script aborted")
         exit(1)
 
-    restart_apache = confirm("Restart apache2 automatically?", "y")
+    restart_webserver_flag = confirm("Restart webserver automatically?", "y")
     verbose = confirm("Do you want to enable verbose mode?", default='n')
 
     if dir_backup or git_clone:
@@ -245,8 +246,8 @@ def main():
     start0 = time.time()
     print("started at", time.strftime("%Y-%m-%d %H:%M:%S"))
 
-    if restart_apache:
-        subprocess.run(['sudo', 'systemctl', 'stop', 'apache2'])
+    if restart_webserver_flag:
+        restart_webserver("stop")
 
     # Handle multithreading based on user choices
     if dir_backup and db_dump and git_clone:
@@ -304,8 +305,8 @@ def main():
             print("----------- Starting git clone process -------------------------------------------------------------")
             f_git_clone(path, moodle, configphp, repo, branch, sync_submodules)
 
-    if restart_apache:
-        subprocess.run(['sudo', 'systemctl', 'start', 'apache2'])
+    if restart_webserver_flag:
+        restart_webserver("start")
 
     # Time calculation
     end0 = time.time()
@@ -335,28 +336,14 @@ def main():
     print("------------------------------------------------------------------------------------------")
     print("finished at", time.strftime("%Y-%m-%d %H:%M:%S"))
 
-def print_numbers(n="n"):
-    for i in range(10):
-        time.sleep(0.1)
-        print(i)
-    print(n)
-
-def print_letters(l="l"):
-    for letter in 'abcdefghij':
-        time.sleep(0.1)
-        print(letter)
-    print(l)
-
-def multithreading():
-    t1 = threading.Thread(target=print_numbers, args=("numbers",))
-    t2 = threading.Thread(target=print_letters, args=("letters",))
-
-    t1.start()
-    t2.start()
-
-    t1.join()
-    t2.join()
-
-    print("finished")
+# Function to start / stop the webserver
+def restart_webserver(action):
+    cache = apt.Cache()
+    if cache['apache2'].is_installed:
+        subprocess.run(['sudo', 'systemctl', action, 'apache2'])
+    elif cache['nginx'].is_installed:
+        subprocess.run(['sudo', 'systemctl', action, 'nginx'])
+    else:
+        print("failed to " + action + " webserver")
 
 main()

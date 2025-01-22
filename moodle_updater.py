@@ -9,6 +9,7 @@ import configparser
 runtime_backup = None
 runtime_dump = None
 runtime_clone = None
+dry_run = False
 
 # Function to load configfile
 def load_config(config_path):
@@ -44,68 +45,75 @@ def f_dir_backup(path, moodle, full_backup):
     start = time.time()
 
     if full_backup:
-        print(f"Doing a full backup of {path} but skipping unnecessary folders")
-
+        print(f"Performing a full backup of {path} but skipping unnecessary folders.")
         backup_folder = os.path.join(f"{path}_bak_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
         path = os.path.join(path, '')
 
-        subprocess.run([
-            'rsync', '-r',
-            '--exclude', 'moodledata/cache',
-            '--exclude', 'moodledata/localcache',
-            '--exclude', 'moodledata/sessions',
-            '--exclude', 'moodledata/temp',
-            '--exclude', 'moodledata/trashdir',
-            path, backup_folder
-        ])
+        if dry_run:
+            print(f"[Dry Run] Would run: rsync -r --exclude=<excluded folders> {path} {backup_folder}")
+        else:
+            subprocess.run([
+                'rsync', '-r',
+                '--exclude', 'moodledata/cache',
+                '--exclude', 'moodledata/localcache',
+                '--exclude', 'moodledata/sessions',
+                '--exclude', 'moodledata/temp',
+                '--exclude', 'moodledata/trashdir',
+                path, backup_folder
+            ])
     else:
         path = os.path.join(path, moodle)
         print(f"Only backing up {path}")
 
         backup_folder = os.path.join(f"{path}_bak_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
         path = os.path.join(path, '')
-
-        subprocess.run(['rsync', '-r', path, backup_folder])
+        if dry_run:
+            print(f"[Dry Run] Would run: rsync -r {path} {backup_folder}")
+        else:
+            subprocess.run(['rsync', '-r', path, backup_folder])
 
     print(f"Backup of {path} was successfully saved in {backup_folder}")
-
-    end = time.time()
-    runtime_backup = int(end - start)
+    runtime_backup = int(time.time() - start)
 
 # Function to perform database dump
 def f_db_dump(dbname, dbuser, dbpass, verbose, pwd):
     global runtime_dump
     start = time.time()
 
-    print("Restarting mysql for better performance...")
-    subprocess.run(['sudo', 'service', 'mysql', 'restart', '--innodb-doublewrite=0'])
-    print("mysql restart complete")
+    if dry_run:
+        print(f"[Dry Run] Would restart MySQL for better performance.")
+    else:
+        print("Restarting mysql for better performance...")
+        subprocess.run(['sudo', 'service', 'mysql', 'restart', '--innodb-doublewrite=0'])
+        print("mysql restart complete")
 
     dump_path = os.path.join(pwd, f"{dbname}_{time.strftime('%Y-%m-%d-%H-%M-%S')}.sql")
 
-    f = open(dump_path, "w")
-    print("DB backing up...")
-
-    if verbose:
-        result = subprocess.run([
-            'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
-            '--skip-lock-tables', f'--databases', dbname, '--verbose'
-        ], stdout=f)
+    if dry_run:
+        print(f"[Dry Run] Would perform database dump to {dump_path} with user {dbuser}.")
     else:
-        result = subprocess.run([
-            'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
-            '--skip-lock-tables', f'--databases', dbname
-        ], stdout=f)
+        f = open(dump_path, "w")
+        print("DB backing up...")
 
-    if result.returncode != 0:
-        print("Error occurred:", result.stderr.decode())
-    else:
-        print(f"Dump was successfully saved in {dump_path}")
+        if verbose:
+            result = subprocess.run([
+                'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
+                '--skip-lock-tables', f'--databases', dbname, '--verbose'
+            ], stdout=f)
+        else:
+            result = subprocess.run([
+                'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
+                '--skip-lock-tables', f'--databases', dbname
+            ], stdout=f)
 
-    os.chown(dump_path, os.getuid(), os.getgid())
+        if result.returncode != 0:
+            print("Error occurred:", result.stderr.decode())
+        else:
+            print(f"Dump was successfully saved in {dump_path}")
 
-    end = time.time()
-    runtime_dump = int(end - start)  # Convert to integer seconds
+        os.chown(dump_path, os.getuid(), os.getgid())
+
+    runtime_dump = int(time.time() - start)
 
 # Function to clone a git repository
 def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
@@ -115,24 +123,38 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
     clone_path = os.path.join(path, moodle)
 
     if os.path.exists(clone_path):
-        shutil.rmtree(clone_path)
+        if dry_run:
+            print(f"[Dry Run] Would remove directory: {clone_path}")
+        else:
+            shutil.rmtree(clone_path)
 
-    subprocess.run(['sudo', 'git', 'clone', repository], cwd=path)
-    subprocess.run(['sudo', 'git', 'checkout', branch], cwd=clone_path)
+    if dry_run:
+        print(f"[Dry Run] Would clone repository: {repository} to {path}")
+        print(f"[Dry Run] Would checkout branch: {branch} to {clone_path}")
+    else:
+        subprocess.run(['sudo', 'git', 'clone', repository], cwd=path)
+        subprocess.run(['sudo', 'git', 'checkout', branch], cwd=clone_path)
 
     if sync_submodules:
-        subprocess.run(['sudo', 'git', 'submodule', 'sync'], cwd=clone_path)
-        subprocess.run(['sudo', 'git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path)
+        if dry_run:
+            print(f"[Dry Run] Would sync and update git submodules in {clone_path}")
+        else:
+            subprocess.run(['sudo', 'git', 'submodule', 'sync'], cwd=clone_path)
+            subprocess.run(['sudo', 'git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path)
 
-    with open(os.path.join(clone_path, 'config.php'), 'w') as config_file:
-        config_file.write(config_php)
+    if dry_run:
+        print(f"[Dry Run] Would create config.php in {clone_path}")
+    else:
+        with open(os.path.join(clone_path, 'config.php'), 'w') as config_file:
+            config_file.write(config_php)
 
-    subprocess.run(['sudo', 'chown', 'www-data:www-data', clone_path, '-R'])
-    print("finished git clone processs")
+    if dry_run:
+        print(f"[Dry Run] Would set ownership of {clone_path} to www-data:www-data.")
+    else:
+        subprocess.run(['sudo', 'chown', 'www-data:www-data', clone_path, '-R'])
+        print("finished git clone processs")
 
-    end = time.time()
-    runtime_clone = int(end - start)
-
+    runtime_clone = int(time.time() - start)
 # Function to perform directory backup and git clone
 def f_dir_backup_git_clone(path, moodle, config_php, full_backup, configphp, repo, branch, sync_submodules):
     print("----------- Backing up Moodle directory ------------------------------------------------------------")
@@ -141,7 +163,7 @@ def f_dir_backup_git_clone(path, moodle, config_php, full_backup, configphp, rep
     print("----------- Starting git clone process -------------------------------------------------------------")
     f_git_clone(path, moodle, configphp, repo, branch, sync_submodules)
 
-# Main function to orchestrate script steps
+# Main function
 def main():
     global runtime_backup, runtime_dump, runtime_clone
 
@@ -155,12 +177,21 @@ def main():
         exit(1)
 
     config = load_config(CONFIG_PATH)
-
+    global dry_run
+    dry_run = config.get('settings', 'dry_run', fallback=False)
+    if dry_run != "True":
+        dry_run = False
     repo = config.get('settings', 'repo')
     branch = config.get('settings', 'branch')
     path = config.get('settings', 'path')
     moodle = config.get('settings', 'moodle', fallback='moodle')
     mt = False
+
+    if dry_run:
+        print(dry_run)
+        print("-------------------------------------------------------------------------")
+        print(f"[Dry Run] is enabled!")
+        print("-------------------------------------------------------------------------")
 
     dir_backup = confirm("Start directory backup process?", "y")
     db_dump = confirm("Start DB dump process?", "y")
@@ -205,7 +236,11 @@ def main():
             if dbpass.strip():
                 break  # Exit loop if dbpass is not empty
 
-        result = str(subprocess.run(['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname], stdout=subprocess.PIPE))
+        if dry_run:
+                print(f"[Dry Run] Would run: mysqlshow to check if DB is accessible with user:{dbuser} password:{dbpass} and DB:{dbname}")
+                result = "returncode=0"
+        else:
+            result = str(subprocess.run(['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname], stdout=subprocess.PIPE))
 
         if "returncode=1" in result:
             print("connection to DB failed")
@@ -342,13 +377,24 @@ def main():
     print("------------------------------------------------------------------------------------------")
     print("finished at", time.strftime("%Y-%m-%d %H:%M:%S"))
 
+    if dry_run:
+        print("-------------------------------------------------------------------------")
+        print(f"[Dry Run] was enabled!")
+        print("-------------------------------------------------------------------------")
+
 # Function to start / stop the webserver
 def restart_webserver(action):
     cache = apt.Cache()
     if cache['apache2'].is_installed:
-        subprocess.run(['sudo', 'systemctl', action, 'apache2'])
+        if dry_run:
+            print(f"[Dry Run] Would run: sudo systemctl {action} apache2")
+        else:
+            subprocess.run(['sudo', 'systemctl', action, 'apache2'])
     elif cache['nginx'].is_installed:
-        subprocess.run(['sudo', 'systemctl', action, 'nginx'])
+        if dry_run:
+            print(f"[Dry Run] Would run: sudo systemctl {action} nginx")
+        else:
+            subprocess.run(['sudo', 'systemctl', action, 'nginx'])
     else:
         print("failed to " + action + " webserver")
 

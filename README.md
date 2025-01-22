@@ -52,6 +52,7 @@
 3. Set up the configuration file:
 
    The `config.ini` file contains the following settings:
+   - **dry_run**: Enable dry run mode to simulate operations without making any changes.
    - **repo**: URL of the Moodle repository to clone.
    - **branch**: Branch of the Moodle repository to checkout.
    - **path**: Path to the directory where Moodle is installed.
@@ -62,6 +63,7 @@
    Edit the provided `config.ini` to match your Moodle setup:
    ```ini
    [settings]
+   dry_run = False
    repo = https://github.com/BLC-FHGR/moodle
    branch = MOODLE_404_STABLE
    path = /var/www/moodle

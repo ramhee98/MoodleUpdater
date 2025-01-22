@@ -4,10 +4,18 @@ import shutil
 import time
 import threading
 import apt
+import configparser
 
 runtime_backup = None
 runtime_dump = None
 runtime_clone = None
+
+# Function to load configfile
+def load_config(config_path):
+    """Load configuration from a file."""
+    config = configparser.ConfigParser(interpolation=None)  # Disable interpolation
+    config.read(config_path)
+    return config
 
 # Function to prompt the user for confirmation, with default responses handled
 def confirm(question, default=''):
@@ -30,17 +38,6 @@ def confirm(question, default=''):
         else:
             if default.lower() in valid_responses:
                 return default_response
-
-# Function to ensure the correct path for Moodle installation
-def prepare_path():
-    print("----------- Prepare Moodle Path --------------------------------------------------------------------")
-
-    path = "/var/www/moodle"
-
-    if not confirm(f"Is this the correct Moodle directory? {path}", "y"):
-        path = input("Please enter a path: ").rstrip("/")
-    
-    return path
 
 # Function to handle directory backups using rsync
 def f_dir_backup(path, moodle, full_backup):
@@ -151,8 +148,21 @@ def main():
     global runtime_dump
     global runtime_clone
 
+    # Load configuration
     pwd = os.getcwd()
-    moodle = "moodle"
+    CONFIG_PATH = os.path.join(pwd, 'config.ini')
+
+    if not os.path.exists(CONFIG_PATH):
+        print(f"Configuration file '{CONFIG_PATH}' not found.")
+        print("Update aborted, exiting!")
+        exit(1)
+
+    config = load_config(CONFIG_PATH)
+
+    repo = config.get('settings', 'repo')
+    branch = config.get('settings', 'branch')
+    path = config.get('settings', 'path')
+    moodle = config.get('settings', 'moodle', fallback='moodle')
     mt = False
 
     dir_backup = confirm("Start directory backup process?", "y")
@@ -174,7 +184,8 @@ def main():
 
     if dir_backup or git_clone:
         print("----------- Prepare Moodle Path --------------------------------------------------------------------")
-        path = prepare_path()
+        if not confirm(f"Is this the correct Moodle directory? {path}", "y"):
+            path = input("Please enter a path: ").rstrip("/")
 
     if dir_backup:
         print("----------- Prepare directory backup process -------------------------------------------------------")
@@ -218,9 +229,7 @@ def main():
 
     if git_clone:
         print("----------- Prepare git clone process --------------------------------------------------------------")
-        repo = 'https://github.com/BLC-FHGR/moodle'
-        branch = 'MOODLE_404_STABLE'
-        configphppath = f"{path}/{moodle}/config.php"
+        configphppath = os.path.join(path, moodle, 'config.php')
 
         if not confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
             customconfigphppath = input("Please enter a config.php path [press enter to skip]: ")

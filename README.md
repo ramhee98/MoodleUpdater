@@ -4,9 +4,13 @@
 
 ## Features
 
+- **Configuration Management**:
+  - Centralized configuration using a `config.ini` file.
+  - Easily specify repository URL, branch, Moodle path, and folder name.
+
 - **Backup Functionality**:
   - Perform a full or partial backup of your Moodle directory.
-  - Backup the Moodle database with `mysqldump`.
+  - Backup the Moodle database using `mysqldump`.
 
 - **Git Integration**:
   - Clone Moodle's repository from GitHub.
@@ -15,7 +19,7 @@
 - **Automation**:
   - Multithreaded execution for combined tasks.
   - Prompts to confirm actions with optional default responses.
-  - Automatically restart Apache after updates (if chosen).
+  - Automatically restart Apache or Nginx after updates.
 
 - **User-Friendly**:
   - Guided prompts for paths, database credentials, and other configurations.
@@ -45,7 +49,24 @@
    sudo apt install python3 rsync mysql-client git
    ```
 
-3. Make the script executable (optional):
+3. Set up the configuration file:
+
+   The `config.ini` file contains the following settings:
+   - **repo**: URL of the Moodle repository to clone.
+   - **branch**: Branch of the Moodle repository to checkout.
+   - **path**: Path to the directory where Moodle is installed.
+   - **moodle**: Name of the Moodle folder within the specified path.
+
+   Edit the provided `config.ini` to match your Moodle setup:
+   ```ini
+   [settings]
+   repo = https://github.com/BLC-FHGR/moodle
+   branch = MOODLE_404_STABLE
+   path = /var/www/moodle
+   moodle = moodle
+   ```
+
+4. Make the script executable (optional):
    ```bash
    chmod +x moodle_updater.py
    ```
@@ -75,7 +96,7 @@ python3 moodle_updater.py
    - Directory backups, database dumps, and Git operations can run concurrently, saving time.
 
 5. **Post-Process**:
-   - Optionally restart Apache to apply changes.
+   - Optionally restart Apache or Nginx to apply changes.
 
 ### Key Prompts
 

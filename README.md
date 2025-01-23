@@ -59,8 +59,9 @@
    - **moodle**: Name of the Moodle folder within the specified path.
    - **folder_backup_path**: Custom directory where backup files will be stored. If left blank, the current working directory will be used.
    - **db_dump_path**: Custom directory where DB dumps will be stored. If left blank, the current working directory will be used.
-   - **db_name**: Name of the Moodle database.
-   - **db_user**: Database username used for DB dump.
+   - **read_db_from_config** Read database name, username and password from `config.php`, default is True
+   - **db_name**: Name of the Moodle database, ignored if read_db_from_config is True.
+   - **db_user**: Database username used for DB dump, ignored if read_db_from_config is True.
 
    `config.ini` will be created on startup if not existing.
    Edit `config.ini` to match your Moodle setup:
@@ -74,6 +75,7 @@
    folder_backup_path = /var/www/moodle
    db_dump_path = /var/www/moodle/db_dump
    [database]
+   read_db_from_config = True
    db_name = moodle
    db_user = root
    ```
@@ -98,7 +100,7 @@ python3 moodle_updater.py
 
 2. **Database Backup**:
    - Dump the Moodle database to a `.sql` file in the directory specified in `config.ini`.
-   - Database credentials are requested during runtime.
+   - Database credentials are read from the `config.php` file by default.
 
 3. **Git Operations**:
    - Clone the Moodle repository, checkout a specific branch, and sync submodules.

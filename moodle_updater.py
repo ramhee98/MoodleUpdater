@@ -5,6 +5,7 @@ import time
 import threading
 import apt
 import configparser
+import re
 
 runtime_backup = None
 runtime_dump = None
@@ -159,6 +160,35 @@ def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_folder_
     print("----------- Starting git clone process -------------------------------------------------------------")
     f_git_clone(path, moodle, configphp, repo, branch, sync_submodules)
 
+def read_moodle_config(config_path):
+    """Reads the Moodle config.php file and extracts $CFG->dbname, $CFG->dbuser, and $CFG->dbpass."""
+    cfg_values = {}
+
+    try:
+        with open(config_path, 'r') as file:
+            content = file.read()
+
+        # Regular expressions to match $CFG->dbname, $CFG->dbuser, and $CFG->dbpass
+        patterns = {
+            'dbname': r"\$CFG->dbname\s*=\s*'([^']+)'",
+            'dbuser': r"\$CFG->dbuser\s*=\s*'([^']+)'",
+            'dbpass': r"\$CFG->dbpass\s*=\s*'([^']+)'",
+        }
+
+        for key, pattern in patterns.items():
+            match = re.search(pattern, content)
+            if match:
+                cfg_values[key] = match.group(1)
+            else:
+                cfg_values[key] = None
+
+    except FileNotFoundError:
+        print(f"Error: File '{config_path}' not found.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+    return cfg_values
+
 # Main function
 def main():
     global runtime_backup, runtime_dump, runtime_clone, dry_run
@@ -184,11 +214,12 @@ def main():
     if dry_run != "True":
         dry_run = False
     moodle = config.get('settings', 'moodle', fallback='moodle')
+    path = config.get('settings', 'path')
+    configphppath = os.path.join(path, moodle, 'config.php')
     multithreading = False
 
     # User confirmation and configurations
     if dry_run:
-        print(dry_run)
         print("-------------------------------------------------------------------------")
         print("[Dry Run] is enabled!")
         print("-------------------------------------------------------------------------")
@@ -212,7 +243,6 @@ def main():
 
     if dir_backup or git_clone:
         print("----------- Prepare Moodle Path --------------------------------------------------------------------")
-        path = config.get('settings', 'path')
         if not confirm(f"Is this the correct Moodle directory? {path}", "y"):
             path = input("Please enter a path: ").rstrip("/")
 
@@ -230,27 +260,27 @@ def main():
         db_dump_path = config.get('settings', 'db_dump_path', fallback='pwd')
         if db_dump_path in ["pwd", ""]:
             db_dump_path = pwd
-        dbname = config.get('database', 'db_name', fallback='moodle')
-        dbuser = config.get('database', 'db_user', fallback='root')
-
-        if not confirm(f"Use DB {dbname}?", "y"):
-            dbname = input("Please enter DB name: ")
-        if not confirm(f"Use DB user {dbuser}?", "y"):
-            dbuser = input("Please enter DB user: ")
-
+        read_db_from_config = config.get('database', 'read_db_from_config', fallback=True)
         dbpass = ""
-        while not dbpass.strip():
-            dbpass = input("Please enter DB password: ").strip()
+        if(read_db_from_config == "False"):
+            dbname = config.get('database', 'db_name', fallback='moodle')
+            dbuser = config.get('database', 'db_user', fallback='root')
+            while not dbpass.strip():
+                dbpass = input("Please enter DB password: ").strip()
+        else:
+            cfg = read_moodle_config(configphppath)
+            dbname = cfg.get('dbname')
+            dbuser = cfg.get('dbuser')
+            dbpass = cfg.get('dbpass')
 
         if dry_run:
-                print(f"[Dry Run] Would run: mysqlshow to check if DB is accessible with user:{dbuser} password:{dbpass} and DB:{dbname}")
+                print(f"[Dry Run] Would run: mysqlshow to check if DB:{dbname} is accessible with user:{dbuser} password:{dbpass}")
                 result = "returncode=0"
         else:
             result = str(subprocess.run(['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname], stdout=subprocess.PIPE))
 
         if "returncode=1" in result:
             print("connection to DB failed")
-            dbpass = ""
             while not dbpass.strip():
                 dbpass = input("Please enter DB password again: ")
                 if dbpass.strip():

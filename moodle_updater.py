@@ -170,9 +170,16 @@ def main():
     # Load configuration
     pwd = os.getcwd()
     CONFIG_PATH = os.path.join(pwd, 'config.ini')
+    CONFIG_TEMPLATE_PATH = os.path.join(pwd, 'config_template.ini')
 
     if not os.path.exists(CONFIG_PATH):
         print(f"Configuration file '{CONFIG_PATH}' not found.")
+        if os.path.exists(CONFIG_TEMPLATE_PATH):
+            shutil.copy(CONFIG_TEMPLATE_PATH, CONFIG_PATH)
+            print(f"Configuration file has been created.")
+            print("Please edit config.ini to your needs.")
+        else:
+            print("Please create config.ini")
         print("Update aborted, exiting!")
         exit(1)
 

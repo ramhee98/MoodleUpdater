@@ -60,7 +60,8 @@
    - **db_name**: Name of the Moodle database.
    - **db_user**: Database username used for DB dump.
 
-   Edit the provided `config.ini` to match your Moodle setup:
+   `config.ini` will be created on startup if not existing.
+   Edit `config.ini` to match your Moodle setup:
    ```ini
    [settings]
    dry_run = False

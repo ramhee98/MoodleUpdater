@@ -163,7 +163,7 @@ def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_folder_
 
 # Main function
 def main():
-    global runtime_backup, runtime_dump, runtime_clone
+    global runtime_backup, runtime_dump, runtime_clone, dry_run
 
     # Load configuration
     pwd = os.getcwd()
@@ -182,16 +182,11 @@ def main():
         exit(1)
 
     config = load_config(CONFIG_PATH)
-    global dry_run
     dry_run = config.get('settings', 'dry_run', fallback=False)
     if dry_run != "True":
         dry_run = False
-    repo = config.get('settings', 'repo')
-    branch = config.get('settings', 'branch')
-    path = config.get('settings', 'path')
     moodle = config.get('settings', 'moodle', fallback='moodle')
-    folder_backup_path = config.get('settings', 'folder_backup_path', fallback='pwd')
-    mt = False
+    multithreading = False
 
     if dry_run:
         print(dry_run)
@@ -218,11 +213,13 @@ def main():
 
     if dir_backup or git_clone:
         print("----------- Prepare Moodle Path --------------------------------------------------------------------")
+        path = config.get('settings', 'path')
         if not confirm(f"Is this the correct Moodle directory? {path}", "y"):
             path = input("Please enter a path: ").rstrip("/")
 
     if dir_backup:
         print("----------- Prepare directory backup process -------------------------------------------------------")
+        folder_backup_path = config.get('settings', 'folder_backup_path', fallback='pwd')
         if(folder_backup_path == "pwd" or folder_backup_path == ""):
             folder_backup_path = pwd
         if not (folder_backup_path.endswith("/")):
@@ -275,6 +272,8 @@ def main():
 
     if git_clone:
         print("----------- Prepare git clone process --------------------------------------------------------------")
+        repo = config.get('settings', 'repo')
+        branch = config.get('settings', 'branch')
         configphppath = os.path.join(path, moodle, 'config.php')
 
         if not confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
@@ -306,7 +305,7 @@ def main():
 
     # Handle multithreading based on user choices
     if dir_backup and db_dump and git_clone:
-        mt = True
+        multithreading = True
 
         t_backup_clone = threading.Thread(
             target=f_dir_backup_git_clone,
@@ -322,7 +321,7 @@ def main():
         t_backup_clone.join()
         t_dump.join()
     elif dir_backup and db_dump:
-        mt = True
+        multithreading = True
 
         t_backup = threading.Thread(target=f_dir_backup, args=(path, moodle, full_backup, folder_backup_path,))
         t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
@@ -335,7 +334,7 @@ def main():
         t_backup.join()
         t_dump.join()
     elif db_dump and git_clone:
-        mt = True
+        multithreading = True
 
         t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
         t_clone = threading.Thread(target=f_git_clone, args=(path, moodle, configphp, repo, branch, sync_submodules,))
@@ -385,7 +384,7 @@ def main():
 
     # Print total runtime
     print("total time needed:", runtime, "seconds")
-    if mt:
+    if multithreading:
         print("time saved with multithreading:", runtime_backup + runtime_dump + runtime_clone - runtime, "seconds")
 
     print("------------------------------------------------------------------------------------------")

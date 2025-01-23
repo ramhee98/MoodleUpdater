@@ -57,7 +57,8 @@
    - **branch**: Branch of the Moodle repository to checkout.
    - **path**: Path to the directory where Moodle is installed.
    - **moodle**: Name of the Moodle folder within the specified path.
-   - **folder_backup_path**: Custom directory where backup files will be stored. If left blank, the current working directory will be used.  
+   - **folder_backup_path**: Custom directory where backup files will be stored. If left blank, the current working directory will be used.
+   - **db_dump_path**: Custom directory where DB dumps will be stored. If left blank, the current working directory will be used.
    - **db_name**: Name of the Moodle database.
    - **db_user**: Database username used for DB dump.
 
@@ -71,6 +72,7 @@
    path = /var/www/moodle
    moodle = moodle
    folder_backup_path = /var/www/moodle
+   db_dump_path = /var/www/moodle/db_dump
    [database]
    db_name = moodle
    db_user = root
@@ -95,7 +97,7 @@ python3 moodle_updater.py
    - Backups are stored with timestamps in a folder defined in `config.ini` for easy identification.
 
 2. **Database Backup**:
-   - Dump the Moodle database to a `.sql` file in the current directory.
+   - Dump the Moodle database to a `.sql` file in the directory specified in `config.ini`.
    - Database credentials are requested during runtime.
 
 3. **Git Operations**:

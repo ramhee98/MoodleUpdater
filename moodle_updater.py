@@ -74,7 +74,7 @@ def f_dir_backup(path, moodle, full_backup, folder_backup_path):
     runtime_backup = int(time.time() - start)
 
 # Function to perform database dump
-def f_db_dump(dbname, dbuser, dbpass, verbose, pwd):
+def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
     global runtime_dump
     start = time.time()
 
@@ -85,7 +85,7 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, pwd):
         subprocess.run(['sudo', 'service', 'mysql', 'restart', '--innodb-doublewrite=0'])
         print("mysql restart complete")
 
-    dump_path = os.path.join(pwd, f"{dbname}_{time.strftime('%Y-%m-%d-%H-%M-%S')}.sql")
+    dump_path = os.path.join(db_dump_path, f"{dbname}_{time.strftime('%Y-%m-%d-%H-%M-%S')}.sql")
 
     if dry_run:
         print(f"[Dry Run] Would perform database dump to {dump_path} with user {dbuser}.")
@@ -231,6 +231,10 @@ def main():
 
     if db_dump:
         print("----------- Prepare database dump process ----------------------------------------------------------")
+        db_dump_path = config.get('settings', 'db_dump_path', fallback='pwd')
+        if(db_dump_path == "pwd" or db_dump_path == ""):
+            db_dump_path = pwd
+
         dbname = config.get('database', 'db_name', fallback='moodle')
         dbuser = config.get('database', 'db_user', fallback='root')
 
@@ -308,7 +312,7 @@ def main():
             target=f_dir_backup_git_clone,
             args=(path, moodle, configphp, full_backup, folder_backup_path, configphp, repo, branch, sync_submodules,)
         )
-        t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, pwd,))
+        t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
         print("----------- Backing up Moodle directory & starting git clone process afterwards | multithreading ---")
         t_backup_clone.start()
@@ -321,7 +325,7 @@ def main():
         mt = True
 
         t_backup = threading.Thread(target=f_dir_backup, args=(path, moodle, full_backup, folder_backup_path,))
-        t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, pwd,))
+        t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
         print("----------- Backing up Moodle directory | multithreading -------------------------------------------")
         t_backup.start()
@@ -333,7 +337,7 @@ def main():
     elif db_dump and git_clone:
         mt = True
 
-        t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, pwd,))
+        t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
         t_clone = threading.Thread(target=f_git_clone, args=(path, moodle, configphp, repo, branch, sync_submodules,))
 
         print("----------- Starting database dump | multithreading ------------------------------------------------")
@@ -350,7 +354,7 @@ def main():
 
         if db_dump:
             print("----------- Starting database dump -----------------------------------------------------------------")
-            f_db_dump(dbname, dbuser, dbpass, verbose, pwd)
+            f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path)
 
         if git_clone:
             print("----------- Starting git clone process -------------------------------------------------------------")

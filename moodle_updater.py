@@ -6,6 +6,7 @@ import threading
 import apt
 import configparser
 import re
+import sys
 
 runtime_backup = None
 runtime_dump = None
@@ -189,9 +190,42 @@ def read_moodle_config(config_path):
 
     return cfg_values
 
+def self_update():
+    """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
+    try:
+        # Check if .git exists in the current directory
+        if not os.path.exists('.git'):
+            print("Not a Git repository. Skipping self-update.")
+            return
+
+        # Check for uncommitted changes
+        status_result = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
+        if status_result.stdout.strip():
+            print("Local changes detected. Skipping self-update to avoid conflicts.")
+            return
+
+        # Pull the latest changes from the remote repository
+        print("Checking for updates...")
+        pull_result = subprocess.run(['git', 'pull', '--rebase'], capture_output=True, text=True)
+        
+        if "Already up to date." in pull_result.stdout:
+            print("The script is already up to date.")
+        else:
+            print("Updates pulled. Restarting the script...")
+            # Restart the script with the updated version
+            os.execv(sys.executable, ['python3'] + sys.argv)
+
+    except Exception as e:
+        print(f"Error during self-update: {e}")
+        print("Continuing with the current version.")
+
 # Main function
 def main():
     global runtime_backup, runtime_dump, runtime_clone, dry_run
+
+    update = confirm("Pull MoodleUpdater from GitHub?", "n")
+    if update:
+        self_update()
 
     # Load configuration
     pwd = os.getcwd()

@@ -25,6 +25,9 @@
   - Guided prompts for paths, database credentials, and other configurations.
   - Default values and skip options for most steps.
 
+- **Update MoodleUpdater with Git Pull**:
+  - Optionally pull the latest version of the script from the Git repository on start.
+
 ## Requirements
 
 - **Operating System**: Linux-based (e.g., Ubuntu)

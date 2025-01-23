@@ -1,2 +1,3 @@
 config.ini
 *.sql
+*_bak_*

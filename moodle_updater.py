@@ -40,14 +40,14 @@ def confirm(question, default=''):
                 return default_response
 
 # Function to handle directory backups using rsync
-def f_dir_backup(path, moodle, full_backup):
+def f_dir_backup(path, moodle, full_backup, folder_backup_path):
     global runtime_backup
     start = time.time()
 
     if full_backup:
-        print(f"Performing a full backup of {path} but skipping unnecessary folders.")
-        backup_folder = os.path.join(f"{path}_bak_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
         path = os.path.join(path, '')
+        print(f"Performing a full backup of {path} but skipping unnecessary folders.")
+        backup_folder = os.path.join(f"{folder_backup_path}{moodle}_bak_full_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
 
         if dry_run:
             print(f"[Dry Run] Would run: rsync -r --exclude=<excluded folders> {path} {backup_folder}")
@@ -62,11 +62,9 @@ def f_dir_backup(path, moodle, full_backup):
                 path, backup_folder
             ])
     else:
-        path = os.path.join(path, moodle)
+        path = os.path.join(path, moodle, '')
         print(f"Only backing up {path}")
-
-        backup_folder = os.path.join(f"{path}_bak_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
-        path = os.path.join(path, '')
+        backup_folder = os.path.join(f"{folder_backup_path}{moodle}_bak_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
         if dry_run:
             print(f"[Dry Run] Would run: rsync -r {path} {backup_folder}")
         else:
@@ -156,9 +154,9 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
 
     runtime_clone = int(time.time() - start)
 # Function to perform directory backup and git clone
-def f_dir_backup_git_clone(path, moodle, config_php, full_backup, configphp, repo, branch, sync_submodules):
+def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_folder_backup_path, configphp, repo, branch, sync_submodules):
     print("----------- Backing up Moodle directory ------------------------------------------------------------")
-    f_dir_backup(path, moodle, full_backup)
+    f_dir_backup(path, moodle, full_backup, folder_folder_backup_path)
 
     print("----------- Starting git clone process -------------------------------------------------------------")
     f_git_clone(path, moodle, configphp, repo, branch, sync_submodules)
@@ -192,6 +190,7 @@ def main():
     branch = config.get('settings', 'branch')
     path = config.get('settings', 'path')
     moodle = config.get('settings', 'moodle', fallback='moodle')
+    folder_backup_path = config.get('settings', 'folder_backup_path', fallback='pwd')
     mt = False
 
     if dry_run:
@@ -224,6 +223,10 @@ def main():
 
     if dir_backup:
         print("----------- Prepare directory backup process -------------------------------------------------------")
+        if(folder_backup_path == "pwd" or folder_backup_path == ""):
+            folder_backup_path = pwd
+        if not (folder_backup_path.endswith("/")):
+            folder_backup_path = os.path.join(folder_backup_path, '')
         full_backup = confirm("Backup entire folder (containing moodle, moodledata and data)?", "n")
 
     if db_dump:
@@ -303,7 +306,7 @@ def main():
 
         t_backup_clone = threading.Thread(
             target=f_dir_backup_git_clone,
-            args=(path, moodle, configphp, full_backup, configphp, repo, branch, sync_submodules,)
+            args=(path, moodle, configphp, full_backup, folder_backup_path, configphp, repo, branch, sync_submodules,)
         )
         t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, pwd,))
 
@@ -317,7 +320,7 @@ def main():
     elif dir_backup and db_dump:
         mt = True
 
-        t_backup = threading.Thread(target=f_dir_backup, args=(path, moodle, full_backup,))
+        t_backup = threading.Thread(target=f_dir_backup, args=(path, moodle, full_backup, folder_backup_path,))
         t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, pwd,))
 
         print("----------- Backing up Moodle directory | multithreading -------------------------------------------")
@@ -343,7 +346,7 @@ def main():
     else:
         if dir_backup:
             print("----------- Backing up Moodle directory ------------------------------------------------------------")
-            f_dir_backup(path, moodle, full_backup)
+            f_dir_backup(path, moodle, full_backup, folder_backup_path)
 
         if db_dump:
             print("----------- Starting database dump -----------------------------------------------------------------")

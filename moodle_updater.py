@@ -35,9 +35,8 @@ def confirm(question, default=''):
         elif user_input == 'c':
             print("Script aborted")
             exit(1)
-        else:
-            if default.lower() in valid_responses:
-                return default_response
+        elif default.lower() in valid_responses:
+            return default_response
 
 # Function to handle directory backups using rsync
 def f_dir_backup(path, moodle, full_backup, folder_backup_path):
@@ -48,7 +47,6 @@ def f_dir_backup(path, moodle, full_backup, folder_backup_path):
         path = os.path.join(path, '')
         print(f"Performing a full backup of {path} but skipping unnecessary folders.")
         backup_folder = os.path.join(f"{folder_backup_path}{moodle}_bak_full_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
-
         if dry_run:
             print(f"[Dry Run] Would run: rsync -r --exclude=<excluded folders> {path} {backup_folder}")
         else:
@@ -90,24 +88,23 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
     if dry_run:
         print(f"[Dry Run] Would perform database dump to {dump_path} with user {dbuser}.")
     else:
-        f = open(dump_path, "w")
-        print("DB backing up...")
+        with open(dump_path, "w") as f:
+            print("DB backing up...")
+            if verbose:
+                result = subprocess.run([
+                    'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
+                    '--skip-lock-tables', '--databases', dbname, '--verbose'
+                ], stdout=f)
+            else:
+                result = subprocess.run([
+                    'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
+                    '--skip-lock-tables', '--databases', dbname
+                ], stdout=f)
 
-        if verbose:
-            result = subprocess.run([
-                'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
-                '--skip-lock-tables', f'--databases', dbname, '--verbose'
-            ], stdout=f)
-        else:
-            result = subprocess.run([
-                'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
-                '--skip-lock-tables', f'--databases', dbname
-            ], stdout=f)
-
-        if result.returncode != 0:
-            print("Error occurred:", result.stderr.decode())
-        else:
-            print(f"Dump was successfully saved in {dump_path}")
+            if result.returncode != 0:
+                print("Error occurred:", result.stderr.decode())
+            else:
+                print(f"Dump was successfully saved in {dump_path}")
 
         os.chown(dump_path, os.getuid(), os.getgid())
 
@@ -150,9 +147,10 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
         print(f"[Dry Run] Would set ownership of {clone_path} to www-data:www-data.")
     else:
         subprocess.run(['sudo', 'chown', 'www-data:www-data', clone_path, '-R'])
-        print("finished git clone processs")
+        print("Finished git clone process")
 
     runtime_clone = int(time.time() - start)
+
 # Function to perform directory backup and git clone
 def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_folder_backup_path, configphp, repo, branch, sync_submodules):
     print("----------- Backing up Moodle directory ------------------------------------------------------------")
@@ -174,7 +172,7 @@ def main():
         print(f"Configuration file '{CONFIG_PATH}' not found.")
         if os.path.exists(CONFIG_TEMPLATE_PATH):
             shutil.copy(CONFIG_TEMPLATE_PATH, CONFIG_PATH)
-            print(f"Configuration file has been created.")
+            print("Configuration file has been created.")
             print("Please edit config.ini to your needs.")
         else:
             print("Please create config.ini")
@@ -188,10 +186,11 @@ def main():
     moodle = config.get('settings', 'moodle', fallback='moodle')
     multithreading = False
 
+    # User confirmation and configurations
     if dry_run:
         print(dry_run)
         print("-------------------------------------------------------------------------")
-        print(f"[Dry Run] is enabled!")
+        print("[Dry Run] is enabled!")
         print("-------------------------------------------------------------------------")
 
     dir_backup = confirm("Start directory backup process?", "y")
@@ -217,35 +216,31 @@ def main():
         if not confirm(f"Is this the correct Moodle directory? {path}", "y"):
             path = input("Please enter a path: ").rstrip("/")
 
+    # Directory backup
     if dir_backup:
-        print("----------- Prepare directory backup process -------------------------------------------------------")
         folder_backup_path = config.get('settings', 'folder_backup_path', fallback='pwd')
-        if(folder_backup_path == "pwd" or folder_backup_path == ""):
+        if folder_backup_path in ["pwd", ""]:
             folder_backup_path = pwd
-        if not (folder_backup_path.endswith("/")):
+        if not folder_backup_path.endswith("/"):
             folder_backup_path = os.path.join(folder_backup_path, '')
-        full_backup = confirm("Backup entire folder (containing moodle, moodledata and data)?", "n")
+        full_backup = confirm("Backup entire folder (containing moodle, moodledata, and data)?", "n")
 
+    # Database dump
     if db_dump:
-        print("----------- Prepare database dump process ----------------------------------------------------------")
         db_dump_path = config.get('settings', 'db_dump_path', fallback='pwd')
-        if(db_dump_path == "pwd" or db_dump_path == ""):
+        if db_dump_path in ["pwd", ""]:
             db_dump_path = pwd
-
         dbname = config.get('database', 'db_name', fallback='moodle')
         dbuser = config.get('database', 'db_user', fallback='root')
 
         if not confirm(f"Use DB {dbname}?", "y"):
             dbname = input("Please enter DB name: ")
-
         if not confirm(f"Use DB user {dbuser}?", "y"):
             dbuser = input("Please enter DB user: ")
 
         dbpass = ""
         while not dbpass.strip():
-            dbpass = input("Please enter DB password: ")
-            if dbpass.strip():
-                break  # Exit loop if dbpass is not empty
+            dbpass = input("Please enter DB password: ").strip()
 
         if dry_run:
                 print(f"[Dry Run] Would run: mysqlshow to check if DB is accessible with user:{dbuser} password:{dbpass} and DB:{dbname}")

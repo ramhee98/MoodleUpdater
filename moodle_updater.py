@@ -199,6 +199,21 @@ def get_commit_details(commit_hash, pwd):
         return result.stdout.strip().split('|')
     return "Unknown", "Unknown", "Unknown"
 
+# Function to start / stop the webserver
+def restart_webserver(action, cache):
+    if cache['apache2'].is_installed:
+        if dry_run:
+            print(f"[Dry Run] Would run: sudo systemctl {action} apache2")
+        else:
+            subprocess.run(['sudo', 'systemctl', action, 'apache2'])
+    elif cache['nginx'].is_installed:
+        if dry_run:
+            print(f"[Dry Run] Would run: sudo systemctl {action} nginx")
+        else:
+            subprocess.run(['sudo', 'systemctl', action, 'nginx'])
+    else:
+        print("failed to " + action + " webserver")
+
 # Function to self update from GitHub   
 def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
@@ -570,20 +585,5 @@ def main():
         print(SEPARATOR)
         print(f"[Dry Run] was enabled!")
         print(SEPARATOR)
-
-# Function to start / stop the webserver
-def restart_webserver(action, cache):
-    if cache['apache2'].is_installed:
-        if dry_run:
-            print(f"[Dry Run] Would run: sudo systemctl {action} apache2")
-        else:
-            subprocess.run(['sudo', 'systemctl', action, 'apache2'])
-    elif cache['nginx'].is_installed:
-        if dry_run:
-            print(f"[Dry Run] Would run: sudo systemctl {action} nginx")
-        else:
-            subprocess.run(['sudo', 'systemctl', action, 'nginx'])
-    else:
-        print("failed to " + action + " webserver")
 
 main()

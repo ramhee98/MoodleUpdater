@@ -291,52 +291,23 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
         logging.info("Continuing with the current version.")
 
 def check_config_differences(config_path, template_path):
-    """
-    Check for differences between config.ini and config_template.ini.
-    If differences are found, log them.
-    """
-    logging.info(SEPARATOR)
+    """Check for differences between config.ini and config_template.ini."""
+    logging.info("Checking configuration differences.")
     try:
-        if not os.path.exists(config_path):
-            logging.error(f"{config_path} not found. Please ensure the file exists.")
-            return
-
-        # Read config_template.ini
-        if not os.path.exists(template_path):
-            logging.error(f"{template_path} not found. Please ensure the file exists.")
-            return
-
         config = configparser.ConfigParser(interpolation=None)
-        config.read(config_path)
-
         template = configparser.ConfigParser(interpolation=None)
+        config.read(config_path)
         template.read(template_path)
 
-        # Compare sections
         all_sections = set(config.sections()).union(set(template.sections()))
-        differences_found = False
-
         for section in all_sections:
             config_items = set(config.items(section)) if config.has_section(section) else set()
             template_items = set(template.items(section)) if template.has_section(section) else set()
-
             added = template_items - config_items
             removed = config_items - template_items
 
             if added or removed:
-                differences_found = True
-                logging.info(f"\n[Differences in section: {section}]")
-                if added:
-                    logging.info("  Missing in config.ini:")
-                    for key, value in added:
-                        logging.info(f"    {key} = {value}")
-                if removed:
-                    logging.info("  Extra in config.ini:")
-                    for key, value in removed:
-                        logging.info(f"    {key} = {value}")
-
-        if not differences_found:
-            logging.info("config.ini matches config_template.ini. No differences found.")
+                logging.warning(f"Differences in section {section}: Added={added}, Removed={removed}")
 
     except Exception as e:
         logging.error(f"Error while checking configuration differences: {e}")

@@ -30,6 +30,8 @@
   - Configurable through the `auto_update_script` setting in `config.ini`. When enabled, the script automatically checks for updates and pulls them if no local changes are detected.
   - If `auto_update_script` is disabled, user is asked if he wants to pull MoodleUpdater from GitHub.
   - Compares `config.ini` with `config_template.ini` and highlights any differences to ensure proper configuration.
+  - Retrieve and display detailed information about the current commit (time, author, summary).
+  - Automatically checks and reports the branch name, current commit details, and updated commit details after pulling changes.
 
 ## Requirements
 

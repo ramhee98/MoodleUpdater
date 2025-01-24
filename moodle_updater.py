@@ -190,6 +190,18 @@ def read_moodle_config(config_path):
 
     return cfg_values
 
+# Function to get commit details
+def get_commit_details(commit_hash, pwd):
+    """Retrieve commit details (time, author, summary) for a given commit hash."""
+    result = subprocess.run(
+        ['git', '-C', pwd, 'show', '-s', '--format=%ci|%an|%s', commit_hash],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        return result.stdout.strip().split('|')
+    return "Unknown", "Unknown", "Unknown"
+
+# Function to self update from GitHub   
 def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
     print("-------------------------------------------------------------------------")
@@ -200,20 +212,25 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             print("Not a Git repository. Skipping self-update.")
             return
 
-        # Get the current branch
+        # Get current branch
         branch_result = subprocess.run(
             ['git', '-C', pwd, 'rev-parse', '--abbrev-ref', 'HEAD'],
             capture_output=True, text=True
         )
         current_branch = branch_result.stdout.strip()
-        print(f"Current branch: {current_branch}")
+        print(f"Branch: {current_branch}")
 
-        # Get the current commit before any updates
+        # Get current commit details
         current_commit_result = subprocess.run(
             ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True
         )
         current_commit = current_commit_result.stdout.strip() if current_commit_result.returncode == 0 else "Unknown"
-        print(f"Current commit: {current_commit}")
+        current_commit_time, current_commit_author, current_commit_summary = get_commit_details(current_commit, pwd)
+
+        print(f"Commit: {current_commit}")
+        print(f"Time: {current_commit_time}")
+        print(f"Author: {current_commit_author}")
+        print(f"Summary: {current_commit_summary}")
 
         # Check for uncommitted changes
         status_result = subprocess.run(
@@ -224,7 +241,7 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
             return
 
-        # Pull the latest changes from the remote repository
+        # Pull the latest changes
         print("Checking for updates...")
         pull_result = subprocess.run(
             ['git', '-C', pwd, 'pull', '--rebase'], capture_output=True, text=True
@@ -234,12 +251,23 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             print("The script is already up to date.")
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
         else:
-            # Get the updated commit after the pull
+            # Get updated commit details
             updated_commit_result = subprocess.run(
                 ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True
             )
             updated_commit = updated_commit_result.stdout.strip() if updated_commit_result.returncode == 0 else "Unknown"
-            print(f"Updated from commit {current_commit} to {updated_commit} on branch {current_branch}.")
+            updated_commit_time, updated_commit_author, updated_commit_summary = get_commit_details(updated_commit, pwd)
+
+            print(f"Updated from commit {current_commit} to commit {updated_commit} on branch {current_branch}.")
+            print(f"Old commit details:")
+            print(f"  Time: {current_commit_time}")
+            print(f"  Author: {current_commit_author}")
+            print(f"  Summary: {current_commit_summary}")
+            print(f"New commit details:")
+            print(f"  Time: {updated_commit_time}")
+            print(f"  Author: {updated_commit_author}")
+            print(f"  Summary: {updated_commit_summary}")
+
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
             # Restart the script with the updated version
             print("Restarting the script...")

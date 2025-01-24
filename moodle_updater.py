@@ -34,7 +34,7 @@ def load_config(config_path):
     """Load configuration from a file."""
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    logging.info(f"Loaded configuration from {config_path}.")
+    logging.info(f"Loaded configuration from {config_path}")
     return config
 
 def confirm(question, default=''):
@@ -74,13 +74,13 @@ def f_dir_backup(path, moodle, full_backup, folder_backup_path):
         '--exclude', 'moodledata/trashdir',
     ] if full_backup else []
 
-    logging.info(f"Starting {backup_type} backup of {path} to {backup_folder}.")
+    logging.info(f"Starting {backup_type} backup of {path} to {backup_folder}")
     if dry_run:
         logging.info(f"[Dry Run] Would run: rsync{' '.join(exclude_args)} {path} {backup_folder}")
     else:
         subprocess.run(['rsync', '-r', *exclude_args, path, backup_folder], check=True)
 
-    logging.info(f"Backup completed and saved in {backup_folder}.")
+    logging.info(f"Backup completed and saved in {backup_folder}")
     runtime_backup = int(time.time() - start)
 
 def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
@@ -93,7 +93,7 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
     if verbose:
         dump_args.append('--verbose')
 
-    logging.info(f"Starting database dump for {dbname} to {dump_file}.")
+    logging.info(f"Starting database dump for {dbname} to {dump_file}")
     if dry_run:
         sanitized_args = [arg if not arg.startswith('-p') else '-p *****' for arg in dump_args]
         logging.info(f"[Dry Run] Would run: {' '.join(sanitized_args)}")
@@ -101,7 +101,7 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
         with open(dump_file, "w") as dump:
             result = subprocess.run(dump_args, stdout=dump)
             if result.returncode == 0:
-                logging.info(f"Database dump saved in {dump_file}.")
+                logging.info(f"Database dump saved in {dump_file}")
             else:
                 logging.error("Database dump failed.")
                 return
@@ -269,7 +269,7 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             updated_commit = updated_commit_result.stdout.strip() if updated_commit_result.returncode == 0 else "Unknown"
             updated_commit_time, updated_commit_author, updated_commit_summary = get_commit_details(updated_commit, pwd)
 
-            logging.info(f"Updated from commit {current_commit} to commit {updated_commit} on branch {current_branch}.")
+            logging.info(f"Updated from commit {current_commit} to commit {updated_commit} on branch {current_branch}")
             logging.info(f"Old commit details:")
             logging.info(f"  Time: {current_commit_time}")
             logging.info(f"  Author: {current_commit_author}")
@@ -410,7 +410,7 @@ def main():
             dbpass = cfg.get('dbpass')
 
         if dry_run:
-            logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}.")
+            logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}")
             result = "returncode=0"
         else:
             result = str(subprocess.run(['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname], stdout=subprocess.PIPE))
@@ -456,7 +456,7 @@ def main():
         exit(1)
     # Start operations
     start_time = time.time()
-    logging.info(f"Started at {time.strftime('%Y-%m-%d %H:%M:%S')}.")
+    logging.info(f"Started at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     if restart_webserver_flag:
         cache = apt.Cache()

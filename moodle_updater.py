@@ -200,6 +200,14 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             print("Not a Git repository. Skipping self-update.")
             return
 
+        # Get the current branch
+        branch_result = subprocess.run(
+            ['git', '-C', pwd, 'rev-parse', '--abbrev-ref', 'HEAD'],
+            capture_output=True, text=True
+        )
+        current_branch = branch_result.stdout.strip()
+        print(f"Current branch: {current_branch}")
+
         # Get the current commit before any updates
         current_commit_result = subprocess.run(
             ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True
@@ -231,11 +239,11 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
                 ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True
             )
             updated_commit = updated_commit_result.stdout.strip() if updated_commit_result.returncode == 0 else "Unknown"
-            print(f"Updated to commit: {updated_commit}")
+            print(f"Updated from commit {current_commit} to {updated_commit} on branch {current_branch}.")
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
+            # Restart the script with the updated version
             print("Restarting the script...")
             print("-------------------------------------------------------------------------")
-            # Restart the script with the updated version
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
     except Exception as e:

@@ -27,6 +27,7 @@
 
 - **Update MoodleUpdater with Git Pull**:
   - Optionally pull the latest version of the script from the Git repository on start.
+  - Compares `config.ini` with `config_template.ini` and highlights any differences.
 
 ## Requirements
 

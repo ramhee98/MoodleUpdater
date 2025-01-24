@@ -190,8 +190,9 @@ def read_moodle_config(config_path):
 
     return cfg_values
 
-def self_update(pwd):
+def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
+    print("-------------------------------------------------------------------------")
     try:
         # Check if .git exists in the script's directory
         git_dir = os.path.join(pwd, '.git')
@@ -205,6 +206,7 @@ def self_update(pwd):
         )
         if status_result.stdout.strip():
             print("Local changes detected. Skipping self-update to avoid conflicts.")
+            check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
             return
 
         # Pull the latest changes from the remote repository
@@ -215,27 +217,86 @@ def self_update(pwd):
         
         if "Already up to date." in pull_result.stdout:
             print("The script is already up to date.")
+            check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
         else:
-            print("Updates pulled. Restarting the script...")
+            print("Updates pulled.")
+            check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
+            print("Restarting the script...")
+            print("-------------------------------------------------------------------------")
             # Restart the script with the updated version
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
     except Exception as e:
         print(f"Error during self-update: {e}")
         print("Continuing with the current version.")
+    print("-------------------------------------------------------------------------")
+
+def check_config_differences(config_path, template_path):
+    """
+    Check for differences between config.ini and config_template.ini.
+    If differences are found, print them to the console.
+    """
+    print("-------------------------------------------------------------------------")
+    try:
+        # Read config.ini
+        if not os.path.exists(config_path):
+            print(f"{config_path} not found. Please ensure the file exists.")
+            return
+
+        # Read config_template.ini
+        if not os.path.exists(template_path):
+            print(f"{template_path} not found. Please ensure the file exists.")
+            return
+
+        # Parse both files
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(config_path)
+
+        template = configparser.ConfigParser(interpolation=None)
+        template.read(template_path)
+
+        # Compare sections
+        all_sections = set(config.sections()).union(set(template.sections()))
+        differences_found = False
+
+        for section in all_sections:
+            config_items = set(config.items(section)) if config.has_section(section) else set()
+            template_items = set(template.items(section)) if template.has_section(section) else set()
+
+            added = template_items - config_items
+            removed = config_items - template_items
+
+            if added or removed:
+                differences_found = True
+                print(f"\n[Differences in section: {section}]")
+                if added:
+                    print("  Missing in config.ini:")
+                    for key, value in added:
+                        print(f"    {key} = {value}")
+                if removed:
+                    print("  Extra in config.ini:")
+                    for key, value in removed:
+                        print(f"    {key} = {value}")
+
+        if not differences_found:
+            print("config.ini matches config_template.ini. No differences found.")
+
+    except Exception as e:
+        print(f"Error while checking configuration differences: {e}")
+    print("-------------------------------------------------------------------------")
 
 # Main function
 def main():
     global runtime_backup, runtime_dump, runtime_clone, dry_run
 
-    pwd = os.path.dirname(os.path.abspath(__file__))
-    update = confirm("Pull MoodleUpdater from GitHub?", "n")
-    if update:
-        self_update(pwd)
-
     # Load configuration
+    pwd = os.path.dirname(os.path.abspath(__file__))
     CONFIG_PATH = os.path.join(pwd, 'config.ini')
     CONFIG_TEMPLATE_PATH = os.path.join(pwd, 'config_template.ini')
+
+    update = confirm("Pull MoodleUpdater from GitHub?", "n")
+    if update:
+        self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
 
     if not os.path.exists(CONFIG_PATH):
         print(f"Configuration file '{CONFIG_PATH}' not found.")

@@ -7,18 +7,35 @@ import apt
 import configparser
 import re
 import sys
+import logging
+from logging.handlers import RotatingFileHandler
 
+# Constants
+SEPARATOR = "-------------------------------------------------------------------------"
+LOG_FILE = "moodle_updater.log"
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),  # Log to console
+        RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3),  # Rotate logs (5 MB, 3 backups)
+    ],
+)
+
+# Runtime globals
 runtime_backup = None
 runtime_dump = None
 runtime_clone = None
 dry_run = False
-SEPARATOR = "-------------------------------------------------------------------------"
 
 # Function to load configfile
 def load_config(config_path):
     """Load configuration from a file."""
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
+    logging.info(f"Loaded configuration from {config_path}.")
     return config
 
 # Function to prompt the user for confirmation, with default responses handled
@@ -32,7 +49,7 @@ def confirm(question, default=''):
 
         if user_input in valid_responses:
             if user_input == 'c':  # Cancel case
-                print("Script aborted")
+                logging.warning("User canceled the operation.")
                 exit(1)
             return valid_responses[user_input]
         elif default and user_input == '':
@@ -40,78 +57,63 @@ def confirm(question, default=''):
 
 # Function to handle directory backups using rsync
 def f_dir_backup(path, moodle, full_backup, folder_backup_path):
+    """Handle directory backups using rsync."""
     global runtime_backup
     start = time.time()
 
-    if full_backup:
+    if(full_backup):
         path = os.path.join(path, '')
-        print(f"Performing a full backup of {path} but skipping unnecessary folders.")
-        backup_folder = os.path.join(f"{folder_backup_path}{moodle}_bak_full_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
-        if dry_run:
-            print(f"[Dry Run] Would run: rsync -r --exclude=<excluded folders> {path} {backup_folder}")
-        else:
-            subprocess.run([
-                'rsync', '-r',
-                '--exclude', 'moodledata/cache',
-                '--exclude', 'moodledata/localcache',
-                '--exclude', 'moodledata/sessions',
-                '--exclude', 'moodledata/temp',
-                '--exclude', 'moodledata/trashdir',
-                path, backup_folder
-            ])
+        backup_type = "full"
     else:
         path = os.path.join(path, moodle, '')
-        print(f"Only backing up {path}")
-        backup_folder = os.path.join(f"{folder_backup_path}{moodle}_bak_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
-        if dry_run:
-            print(f"[Dry Run] Would run: rsync -r {path} {backup_folder}")
-        else:
-            subprocess.run(['rsync', '-r', path, backup_folder])
+        backup_type = "partial"
 
-    print(f"Backup of {path} was successfully saved in {backup_folder}")
+    backup_folder = os.path.join(folder_backup_path, f"{moodle}_bak_{backup_type}_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
+    exclude_args = [
+        '--exclude', 'moodledata/cache',
+        '--exclude', 'moodledata/localcache',
+        '--exclude', 'moodledata/sessions',
+        '--exclude', 'moodledata/temp',
+        '--exclude', 'moodledata/trashdir',
+    ] if full_backup else []
+
+    logging.info(f"Starting {backup_type} backup of {path} to {backup_folder}.")
+    if dry_run:
+        logging.info(f"[Dry Run] Would run: rsync{' '.join(exclude_args)} {path} {backup_folder}")
+    else:
+        subprocess.run(['rsync', '-r', *exclude_args, path, backup_folder], check=True)
+
+    logging.info(f"Backup completed and saved in {backup_folder}.")
     runtime_backup = int(time.time() - start)
 
 # Function to perform database dump
 def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
+    """Perform database dump using mysqldump."""
     global runtime_dump
     start = time.time()
 
+    dump_file = os.path.join(db_dump_path, f"{dbname}_{time.strftime('%Y-%m-%d-%H-%M-%S')}.sql")
+    dump_args = ['mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction', '--skip-lock-tables', '--databases', dbname]
+    if verbose:
+        dump_args.append('--verbose')
+
+    logging.info(f"Starting database dump for {dbname} to {dump_file}.")
     if dry_run:
-        print(f"[Dry Run] Would restart MySQL for better performance.")
+        logging.info(f"[Dry Run] Would run: {' '.join(dump_args)}")
     else:
-        print("Restarting mysql for better performance...")
-        subprocess.run(['sudo', 'service', 'mysql', 'restart', '--innodb-doublewrite=0'])
-        print("mysql restart complete")
-
-    dump_path = os.path.join(db_dump_path, f"{dbname}_{time.strftime('%Y-%m-%d-%H-%M-%S')}.sql")
-
-    if dry_run:
-        print(f"[Dry Run] Would perform database dump to {dump_path} with user {dbuser}.")
-    else:
-        with open(dump_path, "w") as f:
-            print("DB backing up...")
-            if verbose:
-                result = subprocess.run([
-                    'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
-                    '--skip-lock-tables', '--databases', dbname, '--verbose'
-                ], stdout=f)
+        with open(dump_file, "w") as dump:
+            result = subprocess.run(dump_args, stdout=dump)
+            if result.returncode == 0:
+                logging.info(f"Database dump saved in {dump_file}.")
             else:
-                result = subprocess.run([
-                    'mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction',
-                    '--skip-lock-tables', '--databases', dbname
-                ], stdout=f)
-
-            if result.returncode != 0:
-                print("Error occurred:", result.stderr.decode())
-            else:
-                print(f"Dump was successfully saved in {dump_path}")
-
-        os.chown(dump_path, os.getuid(), os.getgid())
+                logging.error("Database dump failed.")
+                return
 
     runtime_dump = int(time.time() - start)
 
 # Function to clone a git repository
 def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
+    """Clone a git repository."""
     global runtime_clone
     start = time.time()
 
@@ -119,45 +121,45 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
 
     if os.path.exists(clone_path):
         if dry_run:
-            print(f"[Dry Run] Would remove directory: {clone_path}")
+            logging.info(f"[Dry Run] Would remove directory: {clone_path}")
         else:
             shutil.rmtree(clone_path)
 
     if dry_run:
-        print(f"[Dry Run] Would clone repository: {repository} to {path}")
-        print(f"[Dry Run] Would checkout branch: {branch} to {clone_path}")
+        logging.info(f"[Dry Run] Would clone repository: {repository} to {path}")
+        logging.info(f"[Dry Run] Would checkout branch: {branch} to {clone_path}")
     else:
-        subprocess.run(['sudo', 'git', 'clone', repository], cwd=path)
-        subprocess.run(['sudo', 'git', 'checkout', branch], cwd=clone_path)
+        subprocess.run(['git', 'clone', repository, clone_path], check=True)
+        subprocess.run(['git', '-C', clone_path, 'checkout', branch], check=True)
 
     if sync_submodules:
         if dry_run:
-            print(f"[Dry Run] Would sync and update git submodules in {clone_path}")
+            logging.info(f"[Dry Run] Would sync and update git submodules in {clone_path}")
         else:
             subprocess.run(['sudo', 'git', 'submodule', 'sync'], cwd=clone_path)
             subprocess.run(['sudo', 'git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path)
 
     if dry_run:
-        print(f"[Dry Run] Would create config.php in {clone_path}")
+        logging.info(f"[Dry Run] Would create config.php in {clone_path}")
     else:
         with open(os.path.join(clone_path, 'config.php'), 'w') as config_file:
             config_file.write(config_php)
 
     if dry_run:
-        print(f"[Dry Run] Would set ownership of {clone_path} to www-data:www-data.")
+        logging.info(f"[Dry Run] Would set ownership of {clone_path} to www-data:www-data.")
     else:
         subprocess.run(['sudo', 'chown', 'www-data:www-data', clone_path, '-R'])
-        print("Finished git clone process")
+        logging.info("Finished git clone process")
 
     runtime_clone = int(time.time() - start)
+    logging.info(f"Git clone completed in {runtime_clone} seconds.")
 
 # Function to perform directory backup and git clone
-def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_folder_backup_path, configphp, repo, branch, sync_submodules):
-    print("----------- Backing up Moodle directory ------------------------------------------------------------")
-    f_dir_backup(path, moodle, full_backup, folder_folder_backup_path)
-
-    print("----------- Starting git clone process -------------------------------------------------------------")
-    f_git_clone(path, moodle, configphp, repo, branch, sync_submodules)
+def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_backup_path, repo, branch, sync_submodules):
+    """Perform directory backup and then git clone."""
+    logging.info("Starting directory backup and git clone.")
+    f_dir_backup(path, moodle, full_backup, folder_backup_path)
+    f_git_clone(path, moodle, config_php, repo, branch, sync_submodules)
 
 def read_moodle_config(config_path):
     """Reads the Moodle config.php file and extracts $CFG->dbname, $CFG->dbuser, and $CFG->dbpass."""
@@ -182,9 +184,9 @@ def read_moodle_config(config_path):
                 cfg_values[key] = None
 
     except FileNotFoundError:
-        print(f"Error: File '{config_path}' not found.")
+        logging.error(f"File {config_path} not found.")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logging.error(f"An error occurred while reading the Moodle config: {e}")
 
     return cfg_values
 
@@ -203,26 +205,27 @@ def get_commit_details(commit_hash, pwd):
 def restart_webserver(action, cache):
     if cache['apache2'].is_installed:
         if dry_run:
-            print(f"[Dry Run] Would run: sudo systemctl {action} apache2")
+            logging.info(f"[Dry Run] Would run: sudo systemctl {action} apache2")
         else:
             subprocess.run(['sudo', 'systemctl', action, 'apache2'])
     elif cache['nginx'].is_installed:
         if dry_run:
-            print(f"[Dry Run] Would run: sudo systemctl {action} nginx")
+            logging.info(f"[Dry Run] Would run: sudo systemctl {action} nginx")
         else:
             subprocess.run(['sudo', 'systemctl', action, 'nginx'])
     else:
-        print("failed to " + action + " webserver")
+        logging.error("failed to " + action + " webserver")
 
 # Function to self update from GitHub   
 def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
-    print(SEPARATOR)
+    logging.info(SEPARATOR)
+    logging.info("Starting self-update process...")
     try:
         # Check if .git exists in the script's directory
         git_dir = os.path.join(pwd, '.git')
         if not os.path.exists(git_dir):
-            print("Not a Git repository. Skipping self-update.")
+            logging.warning("Not a Git repository. Skipping self-update.")
             return
 
         # Get current branch
@@ -231,7 +234,7 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             capture_output=True, text=True
         )
         current_branch = branch_result.stdout.strip()
-        print(f"Branch: {current_branch}")
+        logging.info(f"Current branch: {current_branch}")
 
         # Get current commit details
         current_commit_result = subprocess.run(
@@ -240,28 +243,28 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
         current_commit = current_commit_result.stdout.strip() if current_commit_result.returncode == 0 else "Unknown"
         current_commit_time, current_commit_author, current_commit_summary = get_commit_details(current_commit, pwd)
 
-        print(f"Commit: {current_commit}")
-        print(f"Time: {current_commit_time}")
-        print(f"Author: {current_commit_author}")
-        print(f"Summary: {current_commit_summary}")
+        logging.info(f"Current commit: {current_commit}")
+        logging.info(f"Commit time: {current_commit_time}")
+        logging.info(f"Author: {current_commit_author}")
+        logging.info(f"Summary: {current_commit_summary}")
 
         # Check for uncommitted changes
         status_result = subprocess.run(
             ['git', '-C', pwd, 'status', '--porcelain'], capture_output=True, text=True
         )
         if status_result.stdout.strip():
-            print("Local changes detected. Skipping self-update to avoid conflicts.")
+            logging.warning("Local changes detected. Skipping self-update to avoid conflicts.")
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
             return
 
         # Pull the latest changes
-        print("Checking for updates...")
+        logging.info("Checking for updates...")
         pull_result = subprocess.run(
             ['git', '-C', pwd, 'pull', '--rebase'], capture_output=True, text=True
         )
 
         if "Already up to date." in pull_result.stdout:
-            print("The script is already up to date.")
+            logging.info("The script is already up to date.")
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
         else:
             # Get updated commit details
@@ -271,41 +274,42 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             updated_commit = updated_commit_result.stdout.strip() if updated_commit_result.returncode == 0 else "Unknown"
             updated_commit_time, updated_commit_author, updated_commit_summary = get_commit_details(updated_commit, pwd)
 
-            print(f"Updated from commit {current_commit} to commit {updated_commit} on branch {current_branch}.")
-            print(f"Old commit details:")
-            print(f"  Time: {current_commit_time}")
-            print(f"  Author: {current_commit_author}")
-            print(f"  Summary: {current_commit_summary}")
-            print(f"New commit details:")
-            print(f"  Time: {updated_commit_time}")
-            print(f"  Author: {updated_commit_author}")
-            print(f"  Summary: {updated_commit_summary}")
+            logging.info(f"Updated from commit {current_commit} to commit {updated_commit} on branch {current_branch}.")
+            logging.info(f"Old commit details:")
+            logging.info(f"  Time: {current_commit_time}")
+            logging.info(f"  Author: {current_commit_author}")
+            logging.info(f"  Summary: {current_commit_summary}")
+            logging.info(f"New commit details:")
+            logging.info(f"  Time: {updated_commit_time}")
+            logging.info(f"  Author: {updated_commit_author}")
+            logging.info(f"  Summary: {updated_commit_summary}")
 
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
+
             # Restart the script with the updated version
-            print("Restarting the script...")
-            print(SEPARATOR)
+            logging.info("Restarting the script...")
+            logging.info(SEPARATOR)
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
     except Exception as e:
-        print(f"Error during self-update: {e}")
-        print("Continuing with the current version.")
+        logging.error(f"Error during self-update: {e}")
+        logging.info("Continuing with the current version.")
 
 def check_config_differences(config_path, template_path):
     """
     Check for differences between config.ini and config_template.ini.
-    If differences are found, print them to the console.
+    If differences are found, log them to the console.
     """
-    print(SEPARATOR)
+    logging.info(SEPARATOR)
     try:
         # Read config.ini
         if not os.path.exists(config_path):
-            print(f"{config_path} not found. Please ensure the file exists.")
+            logging.error(f"{config_path} not found. Please ensure the file exists.")
             return
 
         # Read config_template.ini
         if not os.path.exists(template_path):
-            print(f"{template_path} not found. Please ensure the file exists.")
+            logging.error(f"{template_path} not found. Please ensure the file exists.")
             return
 
         # Parse both files
@@ -328,21 +332,21 @@ def check_config_differences(config_path, template_path):
 
             if added or removed:
                 differences_found = True
-                print(f"\n[Differences in section: {section}]")
+                logging.info(f"\n[Differences in section: {section}]")
                 if added:
-                    print("  Missing in config.ini:")
+                    logging.info("  Missing in config.ini:")
                     for key, value in added:
-                        print(f"    {key} = {value}")
+                        logging.info(f"    {key} = {value}")
                 if removed:
-                    print("  Extra in config.ini:")
+                    logging.info("  Extra in config.ini:")
                     for key, value in removed:
-                        print(f"    {key} = {value}")
+                        logging.info(f"    {key} = {value}")
 
         if not differences_found:
-            print("config.ini matches config_template.ini. No differences found.")
+            logging.info("config.ini matches config_template.ini. No differences found.")
 
     except Exception as e:
-        print(f"Error while checking configuration differences: {e}")
+        logging.error(f"Error while checking configuration differences: {e}")
 
 # Main function
 def main():
@@ -353,65 +357,68 @@ def main():
     CONFIG_PATH = os.path.join(pwd, 'config.ini')
     CONFIG_TEMPLATE_PATH = os.path.join(pwd, 'config_template.ini')
     config = load_config(CONFIG_PATH)
-    print("Loaded config")
 
+    # Auto-update the script if enabled
     auto_update = config.get('settings', 'auto_update_script', fallback=False)
     if auto_update == "True":
         self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
     else:
-        print(SEPARATOR)
+        logging.info(SEPARATOR)
         if confirm("Pull MoodleUpdater from GitHub?", "n"):
             self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
 
+    # Check if the configuration file exists
     if not os.path.exists(CONFIG_PATH):
-        print(f"Configuration file '{CONFIG_PATH}' not found.")
+        logging.error(f"Configuration file '{CONFIG_PATH}' not found.")
         if os.path.exists(CONFIG_TEMPLATE_PATH):
             shutil.copy(CONFIG_TEMPLATE_PATH, CONFIG_PATH)
-            print("Configuration file has been created.")
-            print("Please edit config.ini to your needs.")
+            logging.info("Configuration file has been created.")
+            logging.info("Please edit config.ini to your needs.")
         else:
-            print("Please create config.ini")
-        print("Update aborted, exiting!")
+            logging.error("Please create config.ini.")
+        logging.error("Update aborted. Exiting.")
         exit(1)
 
+    # Reload configuration
     config = load_config(CONFIG_PATH)
-    dry_run = config.get('settings', 'dry_run', fallback=False)
-    if dry_run != "True":
-        dry_run = False
+    dry_run = config.get('settings', 'dry_run', fallback="False") == "True"
     moodle = config.get('settings', 'moodle', fallback='moodle')
-    path = config.get('settings', 'path')
+    path = config.get('settings', 'path', fallback=pwd)
     configphppath = os.path.join(path, moodle, 'config.php')
     multithreading = False
 
-    print(SEPARATOR)
-    # User confirmation and configurations
-    if dry_run:
-        print("[Dry Run] is enabled!")
-        print(SEPARATOR)
+    logging.info(SEPARATOR)
 
+    # Log if dry-run mode is enabled
+    if dry_run:
+        logging.warning("[Dry Run] is enabled!")
+        logging.warning(SEPARATOR)
+
+    # Get user confirmation for operations
     dir_backup = confirm("Start directory backup process?", "y")
     db_dump = confirm("Start DB dump process?", "y")
     git_clone = confirm("Start git clone process?", "y")
 
-    print(SEPARATOR)
-    print(f"dirbackup: {dir_backup}")
-    print(f"dbdump: {db_dump}")
-    print(f"gitclone: {git_clone}")
-    print(SEPARATOR)
+    logging.info(SEPARATOR)
+    logging.info(f"dirbackup: {dir_backup}")
+    logging.info(f"dbdump: {db_dump}")
+    logging.info(f"gitclone: {git_clone}")
+    logging.info(SEPARATOR)
 
+    # Abort if no tasks were selected
     if not dir_backup and not db_dump and not git_clone:
-        print("Script aborted")
+        logging.warning("No tasks selected. Script aborted.")
         exit(1)
 
     restart_webserver_flag = confirm("Restart webserver automatically?", "y")
     verbose = confirm("Do you want to enable verbose mode?", default='n')
 
     if dir_backup or git_clone:
-        print("----------- Prepare Moodle Path --------------------------------------------------------------------")
+        logging.info("Preparing Moodle directory path.")
         if not confirm(f"Is this the correct Moodle directory? {path}", "y"):
             path = input("Please enter a path: ").rstrip("/")
 
-    # Directory backup
+    # Directory backup process
     if dir_backup:
         folder_backup_path = config.get('settings', 'folder_backup_path', fallback='pwd')
         if folder_backup_path in ["pwd", ""]:
@@ -420,14 +427,15 @@ def main():
             folder_backup_path = os.path.join(folder_backup_path, '')
         full_backup = confirm("Backup entire folder (containing moodle, moodledata, and data)?", "n")
 
-    # Database dump
+    # Database dump process
     if db_dump:
         db_dump_path = config.get('settings', 'db_dump_path', fallback='pwd')
         if db_dump_path in ["pwd", ""]:
             db_dump_path = pwd
-        read_db_from_config = config.get('database', 'read_db_from_config', fallback=True)
+        read_db_from_config = config.get('database', 'read_db_from_config', fallback="True") == "True"
         dbpass = ""
-        if(read_db_from_config == "False"):
+
+        if not read_db_from_config:
             dbname = config.get('database', 'db_name', fallback='moodle')
             dbuser = config.get('database', 'db_user', fallback='root')
             while not dbpass.strip():
@@ -439,40 +447,38 @@ def main():
             dbpass = cfg.get('dbpass')
 
         if dry_run:
-                print(f"[Dry Run] Would run: mysqlshow to check if DB:{dbname} is accessible with user:{dbuser} password:{dbpass}")
-                result = "returncode=0"
+            logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}.")
+            result = "returncode=0"
         else:
             result = str(subprocess.run(['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname], stdout=subprocess.PIPE))
 
         if "returncode=1" in result:
-            print("connection to DB failed")
+            logging.error("Connection to DB failed.")
             while not dbpass.strip():
-                dbpass = input("Please enter DB password again: ")
-                if dbpass.strip():
-                    break  # Exit loop if dbpass is not empty
+                dbpass = input("Please enter DB password again: ").strip()
+                if dbpass:
+                    break
 
             result = str(subprocess.run(['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname], stdout=subprocess.PIPE))
 
             if "returncode=1" in result:
-                print("connection to DB failed")
-                print("Script aborted")
+                logging.error("Connection to DB failed. Script aborted.")
                 exit(1)
         else:
-            print("connection to DB established")
+            logging.info("Connection to DB established.")
 
+    # Git clone process
     if git_clone:
-        print("----------- Prepare git clone process --------------------------------------------------------------")
+        logging.info("Preparing git clone process.")
         repo = config.get('settings', 'repo')
         branch = config.get('settings', 'branch')
-        configphppath = os.path.join(path, moodle, 'config.php')
-
         if not confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
             customconfigphppath = input("Please enter a config.php path [press enter to skip]: ")
             if customconfigphppath:
                 with open(customconfigphppath, 'r') as file:
                     configphp = file.read()
             else:
-                print("Restore of old config.php skipped!")
+                logging.info("Restore of old config.php skipped.")
         else:
             with open(configphppath, 'r') as file:
                 configphp = file.read()
@@ -483,32 +489,29 @@ def main():
         sync_submodules = confirm("Do you want to sync and update all submodules?", "y")
 
     if not confirm("Do you want to confirm the installation?"):
-        print("Script aborted")
+        logging.warning("User canceled the operation.")
         exit(1)
-
-    # Record the start time
-    start0 = time.time()
-    print("started at", time.strftime("%Y-%m-%d %H:%M:%S"))
+    # Start operations
+    start_time = time.time()
+    logging.info(f"Started at {time.strftime('%Y-%m-%d %H:%M:%S')}.")
 
     if restart_webserver_flag:
         cache = apt.Cache()
         restart_webserver("stop", cache)
 
-    # Handle multithreading based on user choices
+    # Handle multithreading if multiple operations were selected
     if dir_backup and db_dump and git_clone:
         multithreading = True
 
         t_backup_clone = threading.Thread(
             target=f_dir_backup_git_clone,
-            args=(path, moodle, configphp, full_backup, folder_backup_path, configphp, repo, branch, sync_submodules,)
+            args=(path, moodle, configphp, full_backup, folder_backup_path, repo, branch, sync_submodules,)
         )
         t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
-        print("----------- Backing up Moodle directory & starting git clone process afterwards | multithreading ---")
+        logging.info("Starting directory backup, git clone, and database dump (multithreaded).")
         t_backup_clone.start()
-        print("----------- Starting database dump | multithreading ------------------------------------------------")
         t_dump.start()
-
         t_backup_clone.join()
         t_dump.join()
     elif dir_backup and db_dump:
@@ -517,11 +520,9 @@ def main():
         t_backup = threading.Thread(target=f_dir_backup, args=(path, moodle, full_backup, folder_backup_path,))
         t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
-        print("----------- Backing up Moodle directory | multithreading -------------------------------------------")
+        logging.info("Starting directory backup and database dump (multithreaded).")
         t_backup.start()
-        print("----------- Starting database dump | multithreading ------------------------------------------------")
         t_dump.start()
-
         t_backup.join()
         t_dump.join()
     elif db_dump and git_clone:
@@ -530,60 +531,57 @@ def main():
         t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
         t_clone = threading.Thread(target=f_git_clone, args=(path, moodle, configphp, repo, branch, sync_submodules,))
 
-        print("----------- Starting database dump | multithreading ------------------------------------------------")
+        logging.info("Starting database dump and git clone (multithreaded).")
         t_dump.start()
-        print("----------- Starting git clone process | multithreading --------------------------------------------")
         t_clone.start()
-
         t_dump.join()
         t_clone.join()
     else:
         if dir_backup:
-            print("----------- Backing up Moodle directory ------------------------------------------------------------")
+            logging.info("Starting directory backup")
             f_dir_backup(path, moodle, full_backup, folder_backup_path)
 
         if db_dump:
-            print("----------- Starting database dump -----------------------------------------------------------------")
+            logging.info("Starting database dump")
             f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path)
 
         if git_clone:
-            print("----------- Starting git clone process -------------------------------------------------------------")
+            logging.info("Starting git clone")
             f_git_clone(path, moodle, configphp, repo, branch, sync_submodules)
 
     if restart_webserver_flag:
         restart_webserver("start", cache)
 
     # Time calculation
-    end0 = time.time()
-    runtime = int(end0 - start0)  # Convert to integer seconds
+    runtime = int(time.time() - start_time)  # Convert to integer seconds
 
-    # Check if any operation times were recorded and print them
+    # Log if any operation times were recorded
     if runtime_backup:
-        print("directory backup time needed:", runtime_backup, "seconds")
+        logging.info("Directory backup time needed: %d seconds", runtime_backup)
     else:
         runtime_backup = 0
 
     if runtime_dump:
-        print("database dump time needed:", runtime_dump, "seconds")
+        logging.info("Database dump time needed: %d seconds", runtime_dump)
     else:
         runtime_dump = 0
 
     if runtime_clone:
-        print("git clone time needed:", runtime_clone, "seconds")
+        logging.info("Git clone time needed: %d seconds", runtime_clone)
     else:
         runtime_clone = 0
 
-    # Print total runtime
-    print("total time needed:", runtime, "seconds")
+    # Log total runtime
+    logging.info("Total time needed: %d seconds", runtime)
     if multithreading:
-        print("time saved with multithreading:", runtime_backup + runtime_dump + runtime_clone - runtime, "seconds")
+        logging.info("Time saved with multithreading: %d seconds", runtime_backup + runtime_dump + runtime_clone - runtime)
 
-    print("------------------------------------------------------------------------------------------")
-    print("finished at", time.strftime("%Y-%m-%d %H:%M:%S"))
+    logging.info("------------------------------------------------------------------------------------------")
+    logging.info("Finished at %s", time.strftime("%Y-%m-%d %H:%M:%S"))
 
     if dry_run:
-        print(SEPARATOR)
-        print(f"[Dry Run] was enabled!")
-        print(SEPARATOR)
+        logging.info(SEPARATOR)
+        logging.info("[Dry Run] was enabled!")
+        logging.info(SEPARATOR)
 
 main()

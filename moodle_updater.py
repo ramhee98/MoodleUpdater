@@ -228,7 +228,7 @@ def main():
         self_update()
 
     # Load configuration
-    pwd = os.getcwd()
+    pwd = os.path.dirname(os.path.abspath(__file__))
     CONFIG_PATH = os.path.join(pwd, 'config.ini')
     CONFIG_TEMPLATE_PATH = os.path.join(pwd, 'config_template.ini')
 

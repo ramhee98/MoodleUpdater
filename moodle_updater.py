@@ -293,9 +293,13 @@ def main():
     pwd = os.path.dirname(os.path.abspath(__file__))
     CONFIG_PATH = os.path.join(pwd, 'config.ini')
     CONFIG_TEMPLATE_PATH = os.path.join(pwd, 'config_template.ini')
+    config = load_config(CONFIG_PATH)
+    print("Loaded config")
 
-    update = confirm("Pull MoodleUpdater from GitHub?", "n")
-    if update:
+    auto_update = config.get('settings', 'auto_update_script', fallback=False)
+    if auto_update == "True":
+        self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
+    elif confirm("Pull MoodleUpdater from GitHub?", "n"):
         self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
 
     if not os.path.exists(CONFIG_PATH):

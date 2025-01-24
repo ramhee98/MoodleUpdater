@@ -12,6 +12,7 @@ runtime_backup = None
 runtime_dump = None
 runtime_clone = None
 dry_run = False
+SEPARATOR = "-------------------------------------------------------------------------"
 
 # Function to load configfile
 def load_config(config_path):
@@ -204,7 +205,7 @@ def get_commit_details(commit_hash, pwd):
 # Function to self update from GitHub   
 def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
-    print("-------------------------------------------------------------------------")
+    print(SEPARATOR)
     try:
         # Check if .git exists in the script's directory
         git_dir = os.path.join(pwd, '.git')
@@ -271,7 +272,7 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
             # Restart the script with the updated version
             print("Restarting the script...")
-            print("-------------------------------------------------------------------------")
+            print(SEPARATOR)
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
     except Exception as e:
@@ -283,7 +284,7 @@ def check_config_differences(config_path, template_path):
     Check for differences between config.ini and config_template.ini.
     If differences are found, print them to the console.
     """
-    print("-------------------------------------------------------------------------")
+    print(SEPARATOR)
     try:
         # Read config.ini
         if not os.path.exists(config_path):
@@ -346,7 +347,7 @@ def main():
     if auto_update == "True":
         self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
     else:
-        print("-------------------------------------------------------------------------")
+        print(SEPARATOR)
         if confirm("Pull MoodleUpdater from GitHub?", "n"):
             self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
 
@@ -370,21 +371,21 @@ def main():
     configphppath = os.path.join(path, moodle, 'config.php')
     multithreading = False
 
-    print("-------------------------------------------------------------------------")
+    print(SEPARATOR)
     # User confirmation and configurations
     if dry_run:
         print("[Dry Run] is enabled!")
-        print("-------------------------------------------------------------------------")
+        print(SEPARATOR)
 
     dir_backup = confirm("Start directory backup process?", "y")
     db_dump = confirm("Start DB dump process?", "y")
     git_clone = confirm("Start git clone process?", "y")
 
-    print("-------------------------------------------------------------------------")
+    print(SEPARATOR)
     print(f"dirbackup: {dir_backup}")
     print(f"dbdump: {db_dump}")
     print(f"gitclone: {git_clone}")
-    print("-------------------------------------------------------------------------")
+    print(SEPARATOR)
 
     if not dir_backup and not db_dump and not git_clone:
         print("Script aborted")
@@ -568,9 +569,9 @@ def main():
     print("finished at", time.strftime("%Y-%m-%d %H:%M:%S"))
 
     if dry_run:
-        print("-------------------------------------------------------------------------")
+        print(SEPARATOR)
         print(f"[Dry Run] was enabled!")
-        print("-------------------------------------------------------------------------")
+        print(SEPARATOR)
 
 # Function to start / stop the webserver
 def restart_webserver(action):

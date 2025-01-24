@@ -200,6 +200,13 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             print("Not a Git repository. Skipping self-update.")
             return
 
+        # Get the current commit before any updates
+        current_commit_result = subprocess.run(
+            ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True
+        )
+        current_commit = current_commit_result.stdout.strip() if current_commit_result.returncode == 0 else "Unknown"
+        print(f"Current commit: {current_commit}")
+
         # Check for uncommitted changes
         status_result = subprocess.run(
             ['git', '-C', pwd, 'status', '--porcelain'], capture_output=True, text=True
@@ -214,12 +221,17 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
         pull_result = subprocess.run(
             ['git', '-C', pwd, 'pull', '--rebase'], capture_output=True, text=True
         )
-        
+
         if "Already up to date." in pull_result.stdout:
             print("The script is already up to date.")
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
         else:
-            print("Updates pulled.")
+            # Get the updated commit after the pull
+            updated_commit_result = subprocess.run(
+                ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True
+            )
+            updated_commit = updated_commit_result.stdout.strip() if updated_commit_result.returncode == 0 else "Unknown"
+            print(f"Updated to commit: {updated_commit}")
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
             print("Restarting the script...")
             print("-------------------------------------------------------------------------")

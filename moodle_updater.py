@@ -229,7 +229,6 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     except Exception as e:
         print(f"Error during self-update: {e}")
         print("Continuing with the current version.")
-    print("-------------------------------------------------------------------------")
 
 def check_config_differences(config_path, template_path):
     """
@@ -283,7 +282,6 @@ def check_config_differences(config_path, template_path):
 
     except Exception as e:
         print(f"Error while checking configuration differences: {e}")
-    print("-------------------------------------------------------------------------")
 
 # Main function
 def main():
@@ -299,8 +297,10 @@ def main():
     auto_update = config.get('settings', 'auto_update_script', fallback=False)
     if auto_update == "True":
         self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
-    elif confirm("Pull MoodleUpdater from GitHub?", "n"):
-        self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
+    else:
+        print("-------------------------------------------------------------------------")
+        if confirm("Pull MoodleUpdater from GitHub?", "n"):
+            self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
 
     if not os.path.exists(CONFIG_PATH):
         print(f"Configuration file '{CONFIG_PATH}' not found.")
@@ -322,9 +322,9 @@ def main():
     configphppath = os.path.join(path, moodle, 'config.php')
     multithreading = False
 
+    print("-------------------------------------------------------------------------")
     # User confirmation and configurations
     if dry_run:
-        print("-------------------------------------------------------------------------")
         print("[Dry Run] is enabled!")
         print("-------------------------------------------------------------------------")
 

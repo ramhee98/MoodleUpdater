@@ -195,20 +195,23 @@ def get_commit_details(commit_hash, pwd):
         return result.stdout.strip().split('|')
     return "Unknown", "Unknown", "Unknown"
 
-def restart_webserver(action, cache):
+def restart_webserver(action, cache=None):
     """start / stop the apache or nginx webserver, depending on which one is installed"""
-    if cache['apache2'].is_installed:
-        if dry_run:
-            logging.info(f"[Dry Run] Would run: sudo systemctl {action} apache2")
-        else:
-            subprocess.run(['sudo', 'systemctl', action, 'apache2'])
-    elif cache['nginx'].is_installed:
-        if dry_run:
-            logging.info(f"[Dry Run] Would run: sudo systemctl {action} nginx")
-        else:
-            subprocess.run(['sudo', 'systemctl', action, 'nginx'])
+    cache = cache or apt.Cache()
+    if cache["apache2"].is_installed:
+        webserver = "apache2"
+    elif cache["nginx"].is_installed:
+        webserver = "nginx"
     else:
-        logging.error("failed to " + action + " webserver")
+        logging.warning("No supported web server found (Apache/Nginx).")
+        return
+
+    logging.info(f"Attempting to {action} the {webserver} service.")
+    if dry_run:
+        logging.info(f"[Dry Run] Would run: sudo systemctl {action} {webserver}")
+    else:
+        subprocess.run(['sudo', 'systemctl', action, webserver], check=True)
+        logging.info(f"{webserver} service {action}ed successfully.")
 
 def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""

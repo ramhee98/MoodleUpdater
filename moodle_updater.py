@@ -190,30 +190,35 @@ def read_moodle_config(config_path):
 
     return cfg_values
 
-def self_update():
+def self_update(pwd):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
     try:
-        # Check if .git exists in the current directory
-        if not os.path.exists('.git'):
+        # Check if .git exists in the script's directory
+        git_dir = os.path.join(pwd, '.git')
+        if not os.path.exists(git_dir):
             print("Not a Git repository. Skipping self-update.")
             return
 
         # Check for uncommitted changes
-        status_result = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
+        status_result = subprocess.run(
+            ['git', '-C', pwd, 'status', '--porcelain'], capture_output=True, text=True
+        )
         if status_result.stdout.strip():
             print("Local changes detected. Skipping self-update to avoid conflicts.")
             return
 
         # Pull the latest changes from the remote repository
         print("Checking for updates...")
-        pull_result = subprocess.run(['git', 'pull', '--rebase'], capture_output=True, text=True)
+        pull_result = subprocess.run(
+            ['git', '-C', pwd, 'pull', '--rebase'], capture_output=True, text=True
+        )
         
         if "Already up to date." in pull_result.stdout:
             print("The script is already up to date.")
         else:
             print("Updates pulled. Restarting the script...")
             # Restart the script with the updated version
-            os.execv(sys.executable, ['python3'] + sys.argv)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
 
     except Exception as e:
         print(f"Error during self-update: {e}")
@@ -223,12 +228,12 @@ def self_update():
 def main():
     global runtime_backup, runtime_dump, runtime_clone, dry_run
 
+    pwd = os.path.dirname(os.path.abspath(__file__))
     update = confirm("Pull MoodleUpdater from GitHub?", "n")
     if update:
-        self_update()
+        self_update(pwd)
 
     # Load configuration
-    pwd = os.path.dirname(os.path.abspath(__file__))
     CONFIG_PATH = os.path.join(pwd, 'config.ini')
     CONFIG_TEMPLATE_PATH = os.path.join(pwd, 'config_template.ini')
 

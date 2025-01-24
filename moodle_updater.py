@@ -30,7 +30,6 @@ runtime_dump = None
 runtime_clone = None
 dry_run = False
 
-# Function to load configfile
 def load_config(config_path):
     """Load configuration from a file."""
     config = configparser.ConfigParser(interpolation=None)
@@ -38,7 +37,6 @@ def load_config(config_path):
     logging.info(f"Loaded configuration from {config_path}.")
     return config
 
-# Function to prompt the user for confirmation, with default responses handled
 def confirm(question, default=''):
     """Prompt the user for confirmation with optional default response and cancel functionality."""
     valid_responses = {'y': True, 'n': False, 'c': None}
@@ -55,7 +53,6 @@ def confirm(question, default=''):
         elif default and user_input == '':
             return valid_responses.get(default.lower(), False)
 
-# Function to handle directory backups using rsync
 def f_dir_backup(path, moodle, full_backup, folder_backup_path):
     """Handle directory backups using rsync."""
     global runtime_backup
@@ -86,7 +83,6 @@ def f_dir_backup(path, moodle, full_backup, folder_backup_path):
     logging.info(f"Backup completed and saved in {backup_folder}.")
     runtime_backup = int(time.time() - start)
 
-# Function to perform database dump
 def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
     """Perform database dump using mysqldump."""
     global runtime_dump
@@ -111,7 +107,6 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
 
     runtime_dump = int(time.time() - start)
 
-# Function to clone a git repository
 def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
     """Clone a git repository."""
     global runtime_clone
@@ -154,7 +149,6 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
     runtime_clone = int(time.time() - start)
     logging.info(f"Git clone completed in {runtime_clone} seconds.")
 
-# Function to perform directory backup and git clone
 def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_backup_path, repo, branch, sync_submodules):
     """Perform directory backup and then git clone."""
     logging.info("Starting directory backup and git clone.")
@@ -190,7 +184,6 @@ def read_moodle_config(config_path):
 
     return cfg_values
 
-# Function to get commit details
 def get_commit_details(commit_hash, pwd):
     """Retrieve commit details (time, author, summary) for a given commit hash."""
     result = subprocess.run(
@@ -201,8 +194,8 @@ def get_commit_details(commit_hash, pwd):
         return result.stdout.strip().split('|')
     return "Unknown", "Unknown", "Unknown"
 
-# Function to start / stop the webserver
 def restart_webserver(action, cache):
+    """start / stop the apache or nginx webserver, depending on which one is installed"""
     if cache['apache2'].is_installed:
         if dry_run:
             logging.info(f"[Dry Run] Would run: sudo systemctl {action} apache2")
@@ -216,13 +209,11 @@ def restart_webserver(action, cache):
     else:
         logging.error("failed to " + action + " webserver")
 
-# Function to self update from GitHub   
 def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
     logging.info(SEPARATOR)
     logging.info("Starting self-update process...")
     try:
-        # Check if .git exists in the script's directory
         git_dir = os.path.join(pwd, '.git')
         if not os.path.exists(git_dir):
             logging.warning("Not a Git repository. Skipping self-update.")
@@ -257,7 +248,7 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
             return
 
-        # Pull the latest changes
+        # Pull the latest changes from the remote repository to update the script.
         logging.info("Checking for updates...")
         pull_result = subprocess.run(
             ['git', '-C', pwd, 'pull', '--rebase'], capture_output=True, text=True
@@ -298,11 +289,10 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
 def check_config_differences(config_path, template_path):
     """
     Check for differences between config.ini and config_template.ini.
-    If differences are found, log them to the console.
+    If differences are found, log them.
     """
     logging.info(SEPARATOR)
     try:
-        # Read config.ini
         if not os.path.exists(config_path):
             logging.error(f"{config_path} not found. Please ensure the file exists.")
             return
@@ -312,7 +302,6 @@ def check_config_differences(config_path, template_path):
             logging.error(f"{template_path} not found. Please ensure the file exists.")
             return
 
-        # Parse both files
         config = configparser.ConfigParser(interpolation=None)
         config.read(config_path)
 
@@ -348,7 +337,6 @@ def check_config_differences(config_path, template_path):
     except Exception as e:
         logging.error(f"Error while checking configuration differences: {e}")
 
-# Main function
 def main():
     global runtime_backup, runtime_dump, runtime_clone, dry_run
 

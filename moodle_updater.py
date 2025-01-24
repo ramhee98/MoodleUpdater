@@ -479,7 +479,8 @@ def main():
     print("started at", time.strftime("%Y-%m-%d %H:%M:%S"))
 
     if restart_webserver_flag:
-        restart_webserver("stop")
+        cache = apt.Cache()
+        restart_webserver("stop", cache)
 
     # Handle multithreading based on user choices
     if dir_backup and db_dump and git_clone:
@@ -538,7 +539,7 @@ def main():
             f_git_clone(path, moodle, configphp, repo, branch, sync_submodules)
 
     if restart_webserver_flag:
-        restart_webserver("start")
+        restart_webserver("start", cache)
 
     # Time calculation
     end0 = time.time()
@@ -574,8 +575,7 @@ def main():
         print(SEPARATOR)
 
 # Function to start / stop the webserver
-def restart_webserver(action):
-    cache = apt.Cache()
+def restart_webserver(action, cache):
     if cache['apache2'].is_installed:
         if dry_run:
             print(f"[Dry Run] Would run: sudo systemctl {action} apache2")

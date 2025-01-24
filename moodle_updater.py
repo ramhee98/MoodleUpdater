@@ -23,23 +23,20 @@ def load_config(config_path):
 
 # Function to prompt the user for confirmation, with default responses handled
 def confirm(question, default=''):
-    valid_responses = {'y': True, 'n': False}
-    default_response = valid_responses.get(default.lower(), False)
-    option = "Yes(y)/No(n)/Cancel(c)"
-
-    if default != '':
-        option += " Default=" + default
+    """Prompt the user for confirmation with optional default response and cancel functionality."""
+    valid_responses = {'y': True, 'n': False, 'c': None}
+    option = "Yes(y)/No(n)/Cancel(c)" + (f" Default={default}" if default else "")
 
     while True:
-        user_input = input(f"{question} {option}: ").lower()
+        user_input = input(f"{question} {option}: ").strip().lower()
 
-        if user_input in ['y', 'n']:
+        if user_input in valid_responses:
+            if user_input == 'c':  # Cancel case
+                print("Script aborted")
+                exit(1)
             return valid_responses[user_input]
-        elif user_input == 'c':
-            print("Script aborted")
-            exit(1)
-        elif default.lower() in valid_responses:
-            return default_response
+        elif default and user_input == '':
+            return valid_responses.get(default.lower(), False)
 
 # Function to handle directory backups using rsync
 def f_dir_backup(path, moodle, full_backup, folder_backup_path):

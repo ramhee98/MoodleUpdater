@@ -95,7 +95,8 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
 
     logging.info(f"Starting database dump for {dbname} to {dump_file}.")
     if dry_run:
-        logging.info(f"[Dry Run] Would run: {' '.join(dump_args)}")
+        sanitized_args = [arg if not arg.startswith('-p') else '-p *****' for arg in dump_args]
+        logging.info(f"[Dry Run] Would run: {' '.join(sanitized_args)}")
     else:
         with open(dump_file, "w") as dump:
             result = subprocess.run(dump_args, stdout=dump)

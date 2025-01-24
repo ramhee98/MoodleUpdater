@@ -103,11 +103,12 @@ python3 moodle_updater.py
 
 2. **Database Backup**:
    - Dump the Moodle database to a `.sql` file in the directory specified in `config.ini`.
-   - Database credentials are read from the `config.php` file by default.
+   - Database credentials are read from the `config.php` file if `read_db_from_config` is enabled in `config.ini`. Otherwise, credentials specified in `config.ini` are used, password is requested by the user.
 
 3. **Git Operations**:
-   - Clone the Moodle repository, checkout a specific branch, and sync submodules.
+   - Clone the Moodle repository.
    - Optionally restore `config.php` from a previous backup.
+   - Ensures the local repository is up-to-date before operations if there are no local changes.
 
 4. **Multithreading**:
    - Directory backups, database dumps, and Git operations can run concurrently, saving time.
@@ -150,3 +151,4 @@ Developed by [ramhee98](https://github.com/ramhee98). For questions or suggestio
 - The **Features** and **Usage** sections match the script's functionality.
 - Multithreading is emphasized as a key benefit.
 - Prompts and outputs are explained clearly.
+- The script uses its own directory as the reference point for operations, ensuring consistency regardless of where it is executed.

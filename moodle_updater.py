@@ -12,17 +12,16 @@ from logging.handlers import RotatingFileHandler
 
 # Constants
 SEPARATOR = "-------------------------------------------------------------------------"
-LOG_FILE = "moodle_updater.log"
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),  # Log to console
-        RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3),  # Rotate logs (5 MB, 3 backups)
-    ],
-)
+#logging.basicConfig(
+#    level=logging.INFO,
+#    format="%(asctime)s - %(levelname)s - %(message)s",
+#    handlers=[
+#        logging.StreamHandler(),  # Log to console
+#        RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3),  # Rotate logs (5 MB, 3 backups)
+#    ],
+#)
 
 # Runtime globals
 runtime_backup = None
@@ -30,12 +29,48 @@ runtime_dump = None
 runtime_clone = None
 dry_run = False
 
-def load_config(config_path):
+def load_config(config_path, log):
     """Load configuration from a file."""
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    logging.info(f"Loaded configuration from {config_path}")
+    if log:
+        logging.info(f"Loaded configuration from {config_path}")
     return config
+
+def configure_logging(config):
+    """
+    Configures logging based on the settings in the configuration file.
+    :param config: ConfigParser object with application configuration
+    """
+    # Get logging configurations from the config file
+    log_to_console = config.getboolean("logging", "log_to_console", fallback=True)
+    log_to_file = config.getboolean("logging", "log_to_file", fallback=True)
+    log_file_path = config.get("logging", "log_file_path", fallback="moodle_updater.log")
+    log_level = config.get("logging", "log_level", fallback="INFO").upper()
+    numeric_level = getattr(logging, log_level, logging.INFO)
+
+    # Configure logging handlers
+    handlers = []
+    if log_to_console:
+        handlers.append(logging.StreamHandler())
+    if log_to_file:
+        handlers.append(
+            RotatingFileHandler(
+                log_file_path, maxBytes=5 * 1024 * 1024, backupCount=3 # Rotate logs (5 MB, 3 backups)
+            )
+        )
+
+    # Set up logging
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=handlers,
+    )
+    logging.info(f"Logging configured. Level: {log_level}")
+    if log_to_console:
+        logging.info("Logging to console enabled.")
+    if log_to_file:
+        logging.info(f"Logging to file enabled. File path: {log_file_path}")
 
 def confirm(question, default=''):
     """Prompt the user for confirmation with optional default response and cancel functionality."""
@@ -319,7 +354,12 @@ def main():
     pwd = os.path.dirname(os.path.abspath(__file__))
     CONFIG_PATH = os.path.join(pwd, 'config.ini')
     CONFIG_TEMPLATE_PATH = os.path.join(pwd, 'config_template.ini')
-    config = load_config(CONFIG_PATH)
+    config = load_config(CONFIG_PATH, False)
+
+    # Configure logging using the config file
+    configure_logging(config)
+
+    logging.info(f"Loaded configuration from {CONFIG_PATH}")
 
     # Auto-update the script if enabled
     auto_update = config.get('settings', 'auto_update_script', fallback=False)
@@ -343,7 +383,7 @@ def main():
         exit(1)
 
     # Reload configuration
-    config = load_config(CONFIG_PATH)
+    config = load_config(CONFIG_PATH, True)
     dry_run = config.get('settings', 'dry_run', fallback="False") == "True"
     moodle = config.get('settings', 'moodle', fallback='moodle')
     path = config.get('settings', 'path', fallback=pwd)
@@ -355,7 +395,7 @@ def main():
     # Log if dry-run mode is enabled
     if dry_run:
         logging.warning("[Dry Run] is enabled!")
-        logging.warning(SEPARATOR)
+        logging.info(SEPARATOR)
 
     # Get user confirmation for operations
     dir_backup = confirm("Start directory backup process?", "y")

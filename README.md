@@ -33,6 +33,10 @@
   - Retrieve and display detailed information about the current commit (time, author, summary).
   - Automatically checks and reports the branch name, current commit details, and updated commit details after pulling changes.
 
+- **Enhanced Logging**: 
+  - Configurable logging with options for console and file output.
+  - Supports log rotation and adjustable logging levels for better debugging and monitoring.
+
 ## Requirements
 
 - **Operating System**: Linux-based (e.g., Ubuntu)
@@ -71,6 +75,15 @@
    - **read_db_from_config** Read database name, username and password from `config.php`, default is True
    - **db_name**: Name of the Moodle database, ignored if read_db_from_config is True.
    - **db_user**: Database username used for DB dump, ignored if read_db_from_config is True.
+   - **`log_to_console`**: Enable or disable logging to the console.
+   - **`log_to_file`**: Enable or disable logging to a file.
+   - **`log_file_path`**: Specify the file path where logs should be saved (only if `log_to_file` is enabled).
+   - **`log_level`**: Define the level of detail for logging. Available levels:  
+      - `DEBUG`: Detailed information for debugging.  
+      - `INFO`: General informational messages (default).  
+      - `WARNING`: Indicates potential issues.  
+      - `ERROR`: Errors that need immediate attention.  
+      - `CRITICAL`: Severe errors causing program termination.  
 
    `config.ini` will be created on startup if not existing.
    Edit `config.ini` to match your Moodle setup:
@@ -88,6 +101,11 @@
    read_db_from_config = True
    db_name = moodle
    db_user = root
+   [logging]
+   log_to_console = True
+   log_to_file = True
+   log_file_path = moodle_updater.log
+   log_level = INFO
    ```
 
 4. Make the script executable (optional):

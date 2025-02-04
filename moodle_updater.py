@@ -123,31 +123,32 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
 
     logging.info(f"Starting database dump for {dbname} to {dump_file}")
 
-    if dry_run:
-        sanitized_args = [arg if not arg.startswith('-p') else '-p *****' for arg in dump_args]
-        logging.info(f"[Dry Run] Would run: {' '.join(sanitized_args)}")
-    else:
-        # Start the monitoring thread
-        stop_event = threading.Event()
-        monitor_thread = threading.Thread(target=monitor_dump_progress, args=(dump_file, stop_event))
-        monitor_thread.start()
+    # Start the monitoring threads
+    stop_event = threading.Event()
+    monitor_dump_progress_thread = threading.Thread(target=monitor_dump_progress, args=(dump_file, stop_event))
+    monitor_dump_progress_thread.start()
 
-        try:
+    try:
+        if dry_run:
+            sanitized_args = [arg if not arg.startswith('-p') else '-p *****' for arg in dump_args]
+            logging.info(f"[Dry Run] Would run: {' '.join(sanitized_args)}")
+            sleep(10)
+        else:
             with open(dump_file, "w") as dump:
                 result = subprocess.run(dump_args, stdout=dump, stderr=subprocess.PIPE, text=True, check=True)
                 if result.stderr:
                     logging.warning(f"mysqldump warning: {result.stderr.strip()}")
                 logging.info(f"Database dump saved in {dump_file}")
-        except (IOError, OSError) as file_error:
-            logging.error(f"Failed to open {dump_file} for writing: {file_error}")
-            return
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Database dump failed: {e.stderr.strip()}")
-            return
-        finally:
-            # Stop the monitoring thread
-            stop_event.set()
-            monitor_thread.join()
+    except (IOError, OSError) as file_error:
+        logging.error(f"Failed to open {dump_file} for writing: {file_error}")
+        return
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Database dump failed: {e.stderr.strip()}")
+        return
+    finally:
+        # Stop the monitoring threads
+        stop_event.set()
+        monitor_dump_progress_thread.join()
 
     runtime_dump = int(time.time() - start)
 

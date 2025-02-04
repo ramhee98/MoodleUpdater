@@ -13,16 +13,6 @@ from logging.handlers import RotatingFileHandler
 # Constants
 SEPARATOR = "-------------------------------------------------------------------------"
 
-# Configure logging
-#logging.basicConfig(
-#    level=logging.INFO,
-#    format="%(asctime)s - %(levelname)s - %(message)s",
-#    handlers=[
-#        logging.StreamHandler(),  # Log to console
-#        RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3),  # Rotate logs (5 MB, 3 backups)
-#    ],
-#)
-
 # Runtime globals
 runtime_backup = None
 runtime_dump = None

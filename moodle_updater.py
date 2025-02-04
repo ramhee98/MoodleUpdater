@@ -359,8 +359,6 @@ def main():
     # Configure logging using the config file
     configure_logging(config)
 
-    logging.info(f"Loaded configuration from {CONFIG_PATH}")
-
     # Auto-update the script if enabled
     auto_update = config.get('settings', 'auto_update_script', fallback=False)
     if auto_update == "True":
@@ -378,8 +376,7 @@ def main():
             logging.info("Configuration file has been created.")
             logging.info("Please edit config.ini to your needs.")
         else:
-            logging.error("Please create config.ini.")
-        logging.error("Update aborted. Exiting.")
+            logging.error("Missing both config.ini and config_template.ini. Please create config.ini manually.")
         exit(1)
 
     # Reload configuration
@@ -411,7 +408,7 @@ def main():
     # Abort if no tasks were selected
     if not dir_backup and not db_dump and not git_clone:
         logging.warning("No tasks selected. Script aborted.")
-        exit(1)
+        sys.exit(1)
 
     restart_webserver_flag = confirm("Restart webserver automatically?", "y")
     verbose = confirm("Do you want to enable verbose mode?", default='n')

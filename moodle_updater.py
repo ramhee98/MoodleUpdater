@@ -440,22 +440,27 @@ def main():
             logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}")
             result = "returncode=0"
         else:
-            result = str(subprocess.run(['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname], stdout=subprocess.PIPE))
-
-        if "returncode=1" in result:
-            logging.error("Connection to DB failed.")
-            while not dbpass.strip():
-                dbpass = input("Please enter DB password again: ").strip()
-                if dbpass:
-                    break
-
-            result = str(subprocess.run(['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname], stdout=subprocess.PIPE))
-
-            if "returncode=1" in result:
-                logging.error("Connection to DB failed. Script aborted.")
-                exit(1)
-        else:
-            logging.info("Connection to DB established.")
+            try:
+                subprocess.run(
+                    ['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=True
+                )
+                logging.info("Connection to DB established.")
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Connection to DB failed: {e.stderr}")
+                while not dbpass.strip():
+                    dbpass = input("Please enter DB password again: ").strip()
+                    if dbpass:
+                        break
+                try:
+                    subprocess.run(
+                        ['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=True
+                    )
+                    logging.info("Connection to DB established.")
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Connection to DB failed: {e.stderr}")
+                    sys.exit(1)
 
     # Git clone process
     if git_clone:

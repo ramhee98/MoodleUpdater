@@ -112,7 +112,7 @@ def f_dir_backup(path, moodle, full_backup, folder_backup_path):
     runtime_backup = int(time.time() - start)
 
 def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
-    """Perform database dump using mysqldump."""
+    """Perform database dump using mysqldump with progress monitoring."""
     global runtime_dump
     start = time.time()
 
@@ -122,21 +122,32 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
         dump_args.append('--verbose')
 
     logging.info(f"Starting database dump for {dbname} to {dump_file}")
+
     if dry_run:
         sanitized_args = [arg if not arg.startswith('-p') else '-p *****' for arg in dump_args]
         logging.info(f"[Dry Run] Would run: {' '.join(sanitized_args)}")
     else:
+        # Start the monitoring thread
+        stop_event = threading.Event()
+        monitor_thread = threading.Thread(target=monitor_dump_progress, args=(dump_file, stop_event))
+        monitor_thread.start()
+
         try:
             with open(dump_file, "w") as dump:
-                try:
-                    subprocess.run(dump_args, stdout=dump, check=True)
-                    logging.info(f"Database dump saved in {dump_file}")
-                except subprocess.CalledProcessError as e:
-                    logging.error(f"Database dump failed: {e.stderr}")
-                    return
+                result = subprocess.run(dump_args, stdout=dump, stderr=subprocess.PIPE, text=True, check=True)
+                if result.stderr:
+                    logging.warning(f"mysqldump warning: {result.stderr.strip()}")
+                logging.info(f"Database dump saved in {dump_file}")
         except (IOError, OSError) as file_error:
             logging.error(f"Failed to open {dump_file} for writing: {file_error}")
             return
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Database dump failed: {e.stderr.strip()}")
+            return
+        finally:
+            # Stop the monitoring thread
+            stop_event.set()
+            monitor_thread.join()
 
     runtime_dump = int(time.time() - start)
 
@@ -199,6 +210,35 @@ def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_backup_
     logging.info("Starting directory backup and git clone.")
     f_dir_backup(path, moodle, full_backup, folder_backup_path)
     f_git_clone(path, moodle, config_php, repo, branch, sync_submodules)
+
+def monitor_dump_progress(dump_file, stop_event, stagnation_threshold=60):
+    """
+    Monitors the size of the dump file and logs its progress.
+    :param dump_file: The path to the dump file.
+    :param stop_event: A threading event to signal the thread to stop.
+    """
+    logging.info(f"Monitoring database dump progress: {dump_file}")
+
+    last_size = 0
+    stagnation_time = 0  # Counter for how long the file size hasn't changed
+
+    while not stop_event.is_set():
+        if os.path.exists(dump_file):
+            current_size = os.path.getsize(dump_file)
+            
+            if current_size == last_size:
+                stagnation_time += 60  # Increment by the sleep interval
+                if stagnation_time >= stagnation_threshold:
+                    logging.warning(f"Database dump file size hasn't changed for {stagnation_time} seconds. Possible stall?")
+            else:
+                stagnation_time = 0  # Reset stagnation counter on progress
+                logging.info(f"Database dump progress: {current_size / (1024 * 1024):.2f} MB")
+
+            last_size = current_size  # Update last known size
+
+        time.sleep(60) # Check every 60 seconds
+
+    logging.info("Database dump monitoring stopped.")
 
 def read_moodle_config(config_path):
     """Reads the Moodle config.php file and extracts $CFG->dbname, $CFG->dbuser, and $CFG->dbpass."""

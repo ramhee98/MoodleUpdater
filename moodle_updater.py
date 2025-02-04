@@ -103,9 +103,12 @@ def f_dir_backup(path, moodle, full_backup, folder_backup_path):
     if dry_run:
         logging.info(f"[Dry Run] Would run: rsync{' '.join(exclude_args)} {path} {backup_folder}")
     else:
-        subprocess.run(['rsync', '-r', *exclude_args, path, backup_folder], check=True)
+        try:
+            subprocess.run(['rsync', '-r', *exclude_args, path, backup_folder], check=True)
+            logging.info(f"Backup completed and saved in {backup_folder}")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Backup failed: {e.stderr}")
 
-    logging.info(f"Backup completed and saved in {backup_folder}")
     runtime_backup = int(time.time() - start)
 
 def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
@@ -123,13 +126,17 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
         sanitized_args = [arg if not arg.startswith('-p') else '-p *****' for arg in dump_args]
         logging.info(f"[Dry Run] Would run: {' '.join(sanitized_args)}")
     else:
-        with open(dump_file, "w") as dump:
-            result = subprocess.run(dump_args, stdout=dump)
-            if result.returncode == 0:
-                logging.info(f"Database dump saved in {dump_file}")
-            else:
-                logging.error("Database dump failed.")
-                return
+        try:
+            with open(dump_file, "w") as dump:
+                try:
+                    subprocess.run(dump_args, stdout=dump, check=True)
+                    logging.info(f"Database dump saved in {dump_file}")
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Database dump failed: {e.stderr}")
+                    return
+        except (IOError, OSError) as file_error:
+            logging.error(f"Failed to open {dump_file} for writing: {file_error}")
+            return
 
     runtime_dump = int(time.time() - start)
 
@@ -150,28 +157,40 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
         logging.info(f"[Dry Run] Would clone repository: {repository} to {path}")
         logging.info(f"[Dry Run] Would checkout branch: {branch} to {clone_path}")
     else:
-        subprocess.run(['git', 'clone', repository, clone_path], check=True)
-        subprocess.run(['git', '-C', clone_path, 'checkout', branch], check=True)
+        try:
+            subprocess.run(['git', 'clone', repository, clone_path], check=True)
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Git clone failed: {e.stderr}")
+        try:
+            subprocess.run(['git', '-C', clone_path, 'checkout', branch], check=True)
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Git checkout failed: {e.stderr}")
 
     if sync_submodules:
         if dry_run:
             logging.info(f"[Dry Run] Would sync and update git submodules in {clone_path}")
         else:
-            subprocess.run(['sudo', 'git', 'submodule', 'sync'], cwd=clone_path)
-            subprocess.run(['sudo', 'git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path)
+            try:
+                subprocess.run(['sudo', 'git', 'submodule', 'sync'], cwd=clone_path, check=True)
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Git submodule sync failed: {e.stderr}")
+            try:
+                subprocess.run(['sudo', 'git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path, check=True)
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Git submodule update failed: {e.stderr}")
 
     if dry_run:
         logging.info(f"[Dry Run] Would create config.php in {clone_path}")
+        logging.info(f"[Dry Run] Would set ownership of {clone_path} to www-data:www-data.")
     else:
         with open(os.path.join(clone_path, 'config.php'), 'w') as config_file:
             config_file.write(config_php)
+        try:
+            subprocess.run(['sudo', 'chown', 'www-data:www-data', clone_path, '-R'], check=True)
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Setting folder ownership failed: {e.stderr}")
 
-    if dry_run:
-        logging.info(f"[Dry Run] Would set ownership of {clone_path} to www-data:www-data.")
-    else:
-        subprocess.run(['sudo', 'chown', 'www-data:www-data', clone_path, '-R'])
-        logging.info("Finished git clone process")
-
+    logging.info("Finished git clone process")
     runtime_clone = int(time.time() - start)
     logging.info(f"Git clone completed in {runtime_clone} seconds.")
 
@@ -212,12 +231,26 @@ def read_moodle_config(config_path):
 
 def get_commit_details(commit_hash, pwd):
     """Retrieve commit details (time, author, summary) for a given commit hash."""
-    result = subprocess.run(
-        ['git', '-C', pwd, 'show', '-s', '--format=%ci|%an|%s', commit_hash],
-        capture_output=True, text=True
-    )
-    if result.returncode == 0:
-        return result.stdout.strip().split('|')
+    try:
+        result = subprocess.run(
+            ['git', '-C', pwd, 'show', '-s', '--format=%ci|%an|%s', commit_hash],
+            capture_output=True, text=True, check=True
+        )
+        output = result.stdout.strip().split('|')
+
+        if len(output) == 3:
+            return output  # Returns (time, author, summary)
+        else:
+            logging.warning(f"Unexpected output format from Git for commit {commit_hash}: {output}")
+            return "Unknown", "Unknown", "Unknown"
+    
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to retrieve commit details for {commit_hash}: {e.stderr}")
+    except FileNotFoundError:
+        logging.error("Git command not found. Ensure Git is installed and accessible.")
+    except Exception as e:
+        logging.error(f"Unexpected error retrieving commit details: {e}")
+
     return "Unknown", "Unknown", "Unknown"
 
 def restart_webserver(action, cache=None):
@@ -235,8 +268,11 @@ def restart_webserver(action, cache=None):
     if dry_run:
         logging.info(f"[Dry Run] Would run: sudo systemctl {action} {webserver}")
     else:
-        subprocess.run(['sudo', 'systemctl', action, webserver], check=True)
-        logging.info(f"{webserver} service {action}ed successfully.")
+        try:
+            subprocess.run(['sudo', 'systemctl', action, webserver], check=True)
+            logging.info(f"{webserver} service {action}ed successfully.")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"{action}ing {webserver} failed: {e.stderr}")
 
 def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
@@ -249,17 +285,23 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
             return
 
         # Get current branch
-        branch_result = subprocess.run(
-            ['git', '-C', pwd, 'rev-parse', '--abbrev-ref', 'HEAD'],
-            capture_output=True, text=True
-        )
+        try:
+            branch_result = subprocess.run(
+                ['git', '-C', pwd, 'rev-parse', '--abbrev-ref', 'HEAD'],
+                capture_output=True, text=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Retrieving current branch failed: {e.stderr}")
         current_branch = branch_result.stdout.strip()
         logging.info(f"Current branch: {current_branch}")
 
         # Get current commit details
-        current_commit_result = subprocess.run(
-            ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True
-        )
+        try:
+            current_commit_result = subprocess.run(
+                ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Retrieving commit details failed: {e.stderr}")
         current_commit = current_commit_result.stdout.strip() if current_commit_result.returncode == 0 else "Unknown"
         current_commit_time, current_commit_author, current_commit_summary = get_commit_details(current_commit, pwd)
 
@@ -269,9 +311,12 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
         logging.info(f"Summary: {current_commit_summary}")
 
         # Check for uncommitted changes
-        status_result = subprocess.run(
-            ['git', '-C', pwd, 'status', '--porcelain'], capture_output=True, text=True
-        )
+        try:
+            status_result = subprocess.run(
+                ['git', '-C', pwd, 'status', '--porcelain'], capture_output=True, text=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Checking for uncommited changes failed: {e.stderr}")
         if status_result.stdout.strip():
             logging.warning("Local changes detected. Skipping self-update to avoid conflicts.")
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
@@ -279,18 +324,26 @@ def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
 
         # Pull the latest changes from the remote repository to update the script.
         logging.info("Checking for updates...")
-        pull_result = subprocess.run(
-            ['git', '-C', pwd, 'pull', '--rebase'], capture_output=True, text=True
-        )
+        try:
+            pull_result = subprocess.run(
+                ['git', '-C', pwd, 'pull', '--rebase'], capture_output=True, text=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Git pull failed: {e.stderr}")
+
 
         if "Already up to date." in pull_result.stdout:
             logging.info("The script is already up to date.")
             check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
         else:
             # Get updated commit details
-            updated_commit_result = subprocess.run(
-                ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True
-            )
+            try:
+                updated_commit_result = subprocess.run(
+                    ['git', '-C', pwd, 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True
+                )
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Retrieving updated commit failed: {e.stderr}")
+
             updated_commit = updated_commit_result.stdout.strip() if updated_commit_result.returncode == 0 else "Unknown"
             updated_commit_time, updated_commit_author, updated_commit_summary = get_commit_details(updated_commit, pwd)
 

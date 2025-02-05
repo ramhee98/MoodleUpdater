@@ -260,55 +260,71 @@ def monitor_memory_usage(stop_event):
     :param stop_event: A threading event to signal the thread to stop.
     """
     
+    # Track previous memory states to detect recovery
+    previous_critical = False
+    previous_warning = False
+    previous_low_free_warning = False
+
     while not stop_event.is_set():
         # Get memory statistics
         mem_line = next(line for line in os.popen('free -t -m').readlines() if line.startswith("Mem"))
         total_memory, used_memory, free_memory, shared_memory, buff_cached_memory, available_memory = map(int, mem_line.split()[1:7])
 
+        # === CRITICAL MEMORY STATE ===
         if available_memory < 250:
             logging.critical(
-                "CRITICAL MEMORY WARNING: Available memory is extremely low (%d MB)! "
-                "System may soon become unstable.",
+                "CRITICAL MEMORY WARNING: Available memory critically low (%d MB)! System may soon become unstable.",
                 available_memory
             )
-            sleep_time = 0.5  # Log frequently in a critical state
-        elif available_memory < 500:
-            logging.warning(
-                "LOW MEMORY WARNING: Available memory is below 500 MB (%d MB). "
-                "System performance may degrade soon.",
-                available_memory
-            )
-            sleep_time = 1  # Log at 1-second intervals
-        elif available_memory < 1000:
-            logging.info(
-                "Memory Pressure: Available memory is below 1000 MB (%d MB).",
-                available_memory
-            )
-            sleep_time = 2  # Log every 2 seconds
-        elif free_memory < 250:
-            logging.warning(
-                "LOW FREE MEMORY: Free memory is low (%d MB), but available memory is still sufficient (%d MB).",
-                free_memory, available_memory
-            )
-            sleep_time = 2  # Warning, but not critical
-        elif free_memory < 500:
-            logging.info(
-                "Limited Free Memory: Free memory is below 500 MB (%d MB), but available memory is still sufficient (%d MB).",
-                free_memory, available_memory
-            )
-            sleep_time = 5  # Log every 5 seconds
-        else:
-            sleep_time = 5  # Normal monitoring cycle
+            previous_critical = True  # Track that we are in a critical state
+            sleep_time = 0.5
 
-        # General memory stats logging for debugging
+        # RECOVERY: Exiting Critical State
+        elif previous_critical and available_memory >= 250:
+            logging.error("RECOVERY: Available memory recovered to %d MB from a critical state.", available_memory)
+            previous_critical = False  # Reset state
+
+        # === WARNING MEMORY STATE ===
+        if available_memory < 500:
+            if not previous_warning and not previous_critical:  # Only log if not already in a worse state
+                logging.warning(
+                    "LOW MEMORY WARNING: Available memory below 500 MB (%d MB). Performance may degrade.",
+                    available_memory
+                )
+            previous_warning = True
+            sleep_time = 1
+
+        # RECOVERY: Exiting Warning State
+        elif previous_warning and available_memory >= 500:
+            logging.info("RECOVERY: Available memory recovered to %d MB, above warning threshold.", available_memory)
+            previous_warning = False
+
+        # === FREE MEMORY LOW (but available is OK) ===
+        if free_memory < 250 and available_memory > 500:
+            if not previous_low_free_warning:
+                logging.warning("LOW FREE MEMORY: Free memory is %d MB, but available memory is sufficient (%d MB).", free_memory, available_memory)
+            previous_low_free_warning = True
+            sleep_time = 2
+
+        # RECOVERY: Free Memory Restored
+        elif previous_low_free_warning and free_memory >= 250:
+            logging.warning("RECOVERY: Free memory increased to %d MB.", free_memory)
+            previous_low_free_warning = False
+
+        # === NORMAL STATE ===
+        else:
+            sleep_time = 5  # Normal operation
+
+        # Debug log for general memory monitoring
         logging.debug(
             "Memory Stats | Total: %d MB | Used: %d MB | Free: %d MB | Shared: %d MB | Buffers/Cached: %d MB | Available: %d MB",
             total_memory, used_memory, free_memory, shared_memory, buff_cached_memory, available_memory
         )
 
-        time.sleep(sleep_time)  # Adjusted logging frequency
+        time.sleep(sleep_time)
 
     logging.info("Memory monitoring stopped.")
+
 
 def read_moodle_config(config_path):
     """Reads the Moodle config.php file and extracts $CFG->dbname, $CFG->dbuser, and $CFG->dbpass."""

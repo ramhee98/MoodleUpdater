@@ -308,7 +308,7 @@ def monitor_memory_usage(stop_event):
 
         # RECOVERY: Free Memory Restored
         elif previous_low_free_warning and free_memory >= 250:
-            logging.warning("RECOVERY: Free memory increased to %d MB.", free_memory)
+            logging.info("RECOVERY: Free memory increased to %d MB.", free_memory)
             previous_low_free_warning = False
 
         # === NORMAL STATE ===

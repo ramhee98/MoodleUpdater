@@ -127,6 +127,8 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
     stop_event = threading.Event()
     monitor_dump_progress_thread = threading.Thread(target=monitor_dump_progress, args=(dump_file, stop_event))
     monitor_dump_progress_thread.start()
+    monitor_memory_usage_thread = threading.Thread(target=monitor_memory_usage, args=(stop_event,))
+    monitor_memory_usage_thread.start()
 
     try:
         if dry_run:
@@ -149,6 +151,7 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
         # Stop the monitoring threads
         stop_event.set()
         monitor_dump_progress_thread.join()
+        monitor_memory_usage_thread.join()
 
     runtime_dump = int(time.time() - start)
 
@@ -250,6 +253,62 @@ def monitor_dump_progress(dump_file, stop_event, check_interval=5, log_interval=
         time.sleep(check_interval)  # Check more frequently
 
     logging.info("Database dump monitoring stopped.")
+
+def monitor_memory_usage(stop_event):
+    """
+    Monitors memory usage and logs more frequently as free memory decreases.
+    :param stop_event: A threading event to signal the thread to stop.
+    """
+    
+    while not stop_event.is_set():
+        # Get memory statistics
+        mem_line = next(line for line in os.popen('free -t -m').readlines() if line.startswith("Mem"))
+        total_memory, used_memory, free_memory, shared_memory, buff_cached_memory, available_memory = map(int, mem_line.split()[1:7])
+
+        if available_memory < 250:
+            logging.critical(
+                "CRITICAL MEMORY WARNING: Available memory is extremely low (%d MB)! "
+                "System may soon become unstable.",
+                available_memory
+            )
+            sleep_time = 0.5  # Log frequently in a critical state
+        elif available_memory < 500:
+            logging.warning(
+                "LOW MEMORY WARNING: Available memory is below 500 MB (%d MB). "
+                "System performance may degrade soon.",
+                available_memory
+            )
+            sleep_time = 1  # Log at 1-second intervals
+        elif available_memory < 1000:
+            logging.info(
+                "Memory Pressure: Available memory is below 1000 MB (%d MB).",
+                available_memory
+            )
+            sleep_time = 2  # Log every 2 seconds
+        elif free_memory < 250:
+            logging.warning(
+                "LOW FREE MEMORY: Free memory is low (%d MB), but available memory is still sufficient (%d MB).",
+                free_memory, available_memory
+            )
+            sleep_time = 2  # Warning, but not critical
+        elif free_memory < 500:
+            logging.info(
+                "Limited Free Memory: Free memory is below 500 MB (%d MB), but available memory is still sufficient (%d MB).",
+                free_memory, available_memory
+            )
+            sleep_time = 5  # Log every 5 seconds
+        else:
+            sleep_time = 5  # Normal monitoring cycle
+
+        # General memory stats logging for debugging
+        logging.debug(
+            "Memory Stats | Total: %d MB | Used: %d MB | Free: %d MB | Shared: %d MB | Buffers/Cached: %d MB | Available: %d MB",
+            total_memory, used_memory, free_memory, shared_memory, buff_cached_memory, available_memory
+        )
+
+        time.sleep(sleep_time)  # Adjusted logging frequency
+
+    logging.info("Memory monitoring stopped.")
 
 def read_moodle_config(config_path):
     """Reads the Moodle config.php file and extracts $CFG->dbname, $CFG->dbuser, and $CFG->dbpass."""

@@ -212,32 +212,42 @@ def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_backup_
     f_dir_backup(path, moodle, full_backup, folder_backup_path)
     f_git_clone(path, moodle, config_php, repo, branch, sync_submodules)
 
-def monitor_dump_progress(dump_file, stop_event, stagnation_threshold=60):
+def monitor_dump_progress(dump_file, stop_event, check_interval=5, log_interval=60, stagnation_threshold=60):
     """
-    Monitors the size of the dump file and logs its progress.
+    Monitors the size of the dump file and logs its progress periodically.
+    
     :param dump_file: The path to the dump file.
     :param stop_event: A threading event to signal the thread to stop.
+    :param check_interval: Time in seconds between file size checks.
+    :param log_interval: Minimum time in seconds between logs.
+    :param stagnation_threshold: Time in seconds before logging a stagnation warning.
     """
     logging.info(f"Monitoring database dump progress: {dump_file}")
 
     last_size = 0
     stagnation_time = 0  # Counter for how long the file size hasn't changed
+    last_log_time = 0  # Last time a log was written
 
     while not stop_event.is_set():
         if os.path.exists(dump_file):
             current_size = os.path.getsize(dump_file)
-            
+            now = time.time()
+
             if current_size == last_size:
-                stagnation_time += 60  # Increment by the sleep interval
+                stagnation_time += check_interval  # Increment stagnation time
                 if stagnation_time >= stagnation_threshold:
-                    logging.warning(f"Database dump file size hasn't changed for {stagnation_time} seconds. Possible stall?")
+                    if now - last_log_time >= log_interval:
+                        logging.warning(f"Database dump file size hasn't changed for {stagnation_time} seconds. Possible stall?")
+                        last_log_time = now  # Update last log time
             else:
-                stagnation_time = 0  # Reset stagnation counter on progress
-                logging.info(f"Database dump progress: {current_size / (1024 * 1024):.2f} MB")
+                stagnation_time = 0  # Reset stagnation counter
+                if now - last_log_time >= log_interval:
+                    logging.info(f"Database dump progress: {current_size / (1024 * 1024):.2f} MB")
+                    last_log_time = now  # Update last log time
 
             last_size = current_size  # Update last known size
 
-        time.sleep(60) # Check every 60 seconds
+        time.sleep(check_interval)  # Check more frequently
 
     logging.info("Database dump monitoring stopped.")
 

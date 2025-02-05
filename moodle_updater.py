@@ -263,6 +263,7 @@ def monitor_memory_usage(stop_event):
     # Track previous memory states to detect recovery
     previous_critical = False
     previous_warning = False
+    previous_low_free_critical = False
     previous_low_free_warning = False
 
     while not stop_event.is_set():
@@ -298,6 +299,17 @@ def monitor_memory_usage(stop_event):
         elif previous_warning and available_memory >= 500:
             logging.info("RECOVERY: Available memory recovered to %d MB, above warning threshold.", available_memory)
             previous_warning = False
+
+        # === CRITICAL: FREE MEMORY EXTREMELY LOW (but available is OK) ===
+        if free_memory < 125 and available_memory > 500:
+            logging.critical("LOW FREE MEMORY: Free memory is %d MB, but available memory is sufficient (%d MB).", free_memory, available_memory)
+            previous_low_free_critical = True
+            sleep_time = 0.5
+
+        # RECOVERY: Exiting Critical State
+        elif previous_low_free_critical and free_memory >= 125:
+            logging.warning("RECOVERY: Free memory increased to %d MB from a critical state.", free_memory)
+            previous_low_free_critical = False
 
         # === FREE MEMORY LOW (but available is OK) ===
         if free_memory < 250 and available_memory > 500:

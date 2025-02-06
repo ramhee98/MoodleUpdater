@@ -32,10 +32,15 @@
   - Compares `config.ini` with `config_template.ini` and highlights any differences to ensure proper configuration.
   - Retrieve and display detailed information about the current commit (time, author, summary).
   - Automatically checks and reports the branch name, current commit details, and updated commit details after pulling changes.
+  - After successfully pulling updates from the Git repository, the script automatically restarts itself. This ensures that the latest changes take effect immediately, eliminating the need for manual restarts.
+
+- **Progress and Memory Monitoring**:
+  - During a database dump, the script actively monitors the dump file progress and system memory usage in real-time. One monitoring thread checks if the dump file is increasing in size (and warns if progress stalls), while another thread tracks available and free memory. This dual monitoring ensures that any potential stalls or memory issues are detected early, helping to maintain system stability during the update process.
 
 - **Enhanced Logging**: 
   - Configurable logging with options for console and file output.
   - Supports log rotation and adjustable logging levels for better debugging and monitoring.
+  - The script measures and logs the execution time for key operations—directory backup, database dump, and Git clone. It also records the total runtime and calculates the time saved through multithreading when multiple tasks run concurrently. These detailed statistics provide valuable insights into the performance and efficiency of the update process.
 
 ## Requirements
 
@@ -43,9 +48,11 @@
 - **Dependencies**:
   - `python3`
   - `rsync`
-  - `mysqldump` (MySQL or MariaDB tools)
+  - `mysql-client` (MySQL or MariaDB tools)
   - `git`
   - Root or sudo permissions for system and database operations.
+- **Additional Dependency**:
+    In addition to the main dependencies, the script requires the `python3-apt` package for managing the apt cache. It also relies on system utilities such as the `free` command, which is standard on Linux systems.
 
 ## Installation
 

@@ -565,7 +565,8 @@ def main():
     dry_run = config.get('settings', 'dry_run', fallback="False") == "True"
     moodle = config.get('settings', 'moodle', fallback='moodle')
     path = config.get('settings', 'path', fallback=pwd)
-    configphppath = os.path.join(path, moodle, 'config.php')
+    full_path = os.path.join(path, moodle)
+    configphppath = os.path.join(full_path, 'config.php')
     multithreading = False
 
     logging.info(SEPARATOR)

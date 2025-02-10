@@ -15,6 +15,7 @@
 - **Git Integration**:
   - Clone Moodle's repository from GitHub.
   - Checkout specific branches and sync submodules.
+  - Before updating Moodle, MoodleUpdater now compares the local Moodle version with the latest version available in the configured Git repository. This ensures that updates are not performed if not possible, preventing unnecessary downtime.
 
 - **Automation**:
   - Multithreaded execution for combined tasks.

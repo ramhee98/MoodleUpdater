@@ -639,6 +639,7 @@ def main():
         logging.info("Preparing Moodle directory path.")
         if not confirm(f"Is this the correct Moodle directory? {path}", "y"):
             path = input("Please enter a path: ").rstrip("/")
+            full_path = os.path.join(path, moodle)
 
     # Directory backup process
     if dir_backup:

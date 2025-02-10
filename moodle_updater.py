@@ -65,39 +65,31 @@ def configure_logging(config):
     if log_to_file:
         logging.info(f"Logging to file enabled. File path: {log_file_path}")
 
-def get_moodle_version(moodle_path, version_type="build"):
+def get_moodle_version(moodle_path):
     """
     Retrieve Moodle version information.
     :param moodle_path: Path to the Moodle installation directory.
-    :param version_type: "release" for human-friendly version, "build" for numeric version.
-    :return: Version string or "Unknown" if not found.
+    :return: Tuple (release_version, build_version) or ("Unknown", "Unknown") if not found.
     """
     version_file = os.path.join(moodle_path, "version.php")
     if not os.path.exists(version_file):
         logging.warning("Moodle version file not found.")
-        return "Unknown"
+        return "Unknown", "Unknown"
 
     try:
         with open(version_file, "r") as f:
             content = f.read()
-        
+
         # Human-friendly version (e.g., "4.1+ (Build: 20240115)")
-        if version_type == "release":
-            match = re.search(r"\$release\s*=\s*'([^']+)'", content)
-            return match.group(1) if match else "Unknown"
-
+        release_match = re.search(r"\$release\s*=\s*'([^']+)'", content)
         # Numeric version (e.g., "2024042205.00")
-        elif version_type == "build":
-            match = re.search(r"\$version\s*=\s*([\d\.]+);", content)
-            return match.group(1) if match else "Unknown"
+        build_match = re.search(r"\$version\s*=\s*([\d\.]+);", content)
 
-        else:
-            logging.error("Invalid version_type. Use 'release' or 'build'.")
-            return "Unknown"
+        return release_match.group(1) if release_match else "Unknown", build_match.group(1) if build_match else "Unknown"
 
     except Exception as e:
         logging.error(f"Error reading Moodle version: {e}")
-        return "Unknown"
+        return "Unknown", "Unknown"
 
 def confirm(question, default=''):
     """Prompt the user for confirmation with optional default response and cancel functionality."""
@@ -607,7 +599,8 @@ def main():
     multithreading = False
 
     # Get Moodle Release Version
-    logging.info(f"Moodle version detected: {get_moodle_version(full_path, 'release')}")
+    local_release_version, _ = get_moodle_version(full_path)
+    logging.info(f"Moodle version detected: {local_release_version}")
 
     logging.info(SEPARATOR)
 

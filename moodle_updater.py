@@ -1,13 +1,16 @@
-import os
-import subprocess
-import shutil
-import time
-import threading
-import apt
+# Standard Library
 import configparser
-import re
-import sys
 import logging
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+
+# Third-Party Libraries
+import apt
 from logging.handlers import RotatingFileHandler
 
 # Constants

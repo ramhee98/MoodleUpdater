@@ -11,6 +11,7 @@ import time
 
 # Third-Party Libraries
 import apt
+import requests
 from logging.handlers import RotatingFileHandler
 
 # Constants
@@ -89,6 +90,31 @@ def get_moodle_version(moodle_path):
 
     except Exception as e:
         logging.error(f"Error reading Moodle version: {e}")
+        return "Unknown", "Unknown"
+
+def get_remote_moodle_version(repo_url, branch):
+    """
+    Retrieve Moodle version information from the remote Git repository.
+    :param repo_url: URL of the Moodle Git repository.
+    :param branch: Branch to check the version from.
+    :return: Tuple (release_version, build_version) or ("Unknown", "Unknown") if not found.
+    """
+
+    version_url = f"{repo_url.replace('.git', '')}/raw/{branch}/version.php"
+    try:
+        response = requests.get(version_url, timeout=10)
+        if response.status_code == 200:
+            # Human-friendly version (e.g., "4.1+ (Build: 20240115)")
+            release_match = re.search(r"\$release\s*=\s*'([^']+)'", response.text)
+            # Numeric version (e.g., "2024042205.00")
+            build_match = re.search(r"\$version\s*=\s*([\d\.]+);", response.text)
+
+            return release_match.group(1) if release_match else "Unknown", build_match.group(1) if build_match else "Unknown"
+        else:
+            logging.warning(f"Failed to retrieve remote version (HTTP {response.status_code})")
+            return "Unknown", "Unknown"
+    except requests.RequestException as e:
+        logging.error(f"Error fetching remote version: {e}")
         return "Unknown", "Unknown"
 
 def confirm(question, default=''):
@@ -693,6 +719,27 @@ def main():
         logging.info("Preparing git clone process.")
         repo = config.get('settings', 'repo')
         branch = config.get('settings', 'branch')
+
+        # Get local and remote versions
+        release_version, build_version = get_moodle_version(full_path)
+        remote_release_version, remote_build_version = get_remote_moodle_version(repo, branch)
+
+        if build_version != "Unknown" and remote_build_version != "Unknown":
+            try:
+                local_version = float(build_version)
+                remote_version = float(remote_build_version)
+
+                if remote_version == local_version:
+                    logging.info(f"Local Moodle version ({release_version} - (Version: {build_version})) is up-to-date.")
+                elif remote_version > local_version:
+                    logging.info(f"Newer Moodle version available ({remote_release_version} - (Version: {remote_build_version}) > {release_version} - (Version: {build_version})). Proceeding with update.")
+                else:
+                    logging.critical(f"Local Moodle version ({release_version} - (Version: {build_version})) is newer than remote ({remote_release_version} - (Version: {remote_build_version})). Skipping update.")
+                    sys.exit(1)
+
+            except Exception as e:
+                logging.error(f"Error parsing Moodle versions: local='{release_version}', remote='{remote_release_version}'. Exception: {e}")
+
         if not confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
             customconfigphppath = input("Please enter a config.php path [press enter to skip]: ")
             if customconfigphppath:

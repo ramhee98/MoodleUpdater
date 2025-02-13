@@ -172,7 +172,7 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
     start = time.time()
 
     dump_file = os.path.join(db_dump_path, f"{dbname}_{time.strftime('%Y-%m-%d-%H-%M-%S')}.sql")
-    dump_args = ['mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction', '--skip-lock-tables', '--databases', dbname]
+    dump_args = ['mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction', '--skip-lock-tables', '--max_allowed_packet=100M', '--quick', '--databases', dbname]
     if verbose:
         dump_args.append('--verbose')
 

@@ -300,7 +300,10 @@ def monitor_dump_progress(dump_file, stop_event, check_interval=5, log_interval=
             else:
                 stagnation_time = 0  # Reset stagnation counter
                 if now - last_log_time >= log_interval:
-                    logging.info(f"Database dump progress: {current_size / (1024 * 1024):.2f} MB")
+                    if current_size / (1024 * 1024) >= 1024:
+                        logging.info(f"Database dump progress: {current_size / (1024 * 1024 * 1024):.2f} GB")
+                    else:
+                        logging.info(f"Database dump progress: {current_size / (1024 * 1024):.2f} MB")
                     last_log_time = now  # Update last log time
 
             last_size = current_size  # Update last known size

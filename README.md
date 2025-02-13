@@ -21,6 +21,7 @@
   - Multithreaded execution for combined tasks.
   - Prompts to confirm actions with optional default responses.
   - Automatically restart Apache or Nginx after updates.
+  - Optionally restart the database service before a database dump.
 
 - **User-Friendly**:
   - Guided prompts for paths, database credentials, and other configurations.
@@ -54,6 +55,7 @@
   - Root or sudo permissions for system and database operations.
 - **Additional Dependency**:
     In addition to the main dependencies, the script requires the `python3-apt` package for managing the apt cache. It also relies on system utilities such as the `free` command, which is standard on Linux systems.
+    The script can detect installed webserver and database services and optionally restart them. This requires `systemctl` for managing services.
 
 ## Installation
 
@@ -137,6 +139,8 @@ python3 moodle_updater.py
 2. **Database Backup**:
    - Dump the Moodle database to a `.sql` file in the directory specified in `config.ini`.
    - Database credentials are read from the `config.php` file if `read_db_from_config` is enabled in `config.ini`. Otherwise, credentials specified in `config.ini` are used, password is requested by the user.
+   - Before dumping, the script asks if the database should be restarted.
+   - If restarted, a **2-second pause** is added to ensure the database is fully initialized before proceeding.
 
 3. **Git Operations**:
    - Clone the Moodle repository.

@@ -467,6 +467,39 @@ def restart_webserver(action, cache=None):
         except subprocess.CalledProcessError as e:
             logging.error(f"{action}ing {webserver} failed: {e.stderr}")
 
+def restart_database(action, cache=None):
+    """Start / stop the installed database service, based on availability."""
+    cache = cache or apt.Cache()
+    
+    database_services = {
+        "mysql-server": "mysql",
+        "mariadb-server": "mariadb",
+        "postgresql": "postgresql",
+        "mssql-server": "mssql-server",
+        "mongodb": "mongodb",
+        "redis-server": "redis",
+    }
+
+    # Identify installed database services
+    installed_db_services = [service for service in database_services if service in cache and cache[service].is_installed]
+
+    if not installed_db_services:
+        logging.warning("No supported database server found.")
+        return
+
+    for db_service in installed_db_services:
+        service_name = database_services[db_service]
+        logging.info(f"Attempting to {action} the {service_name} service.")
+        
+        if dry_run:
+            logging.info(f"[Dry Run] Would run: sudo systemctl {action} {service_name}")
+        else:
+            try:
+                subprocess.run(['sudo', 'systemctl', action, service_name], check=True)
+                logging.info(f"{service_name} service {action}ed successfully.")
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Failed to {action} the {service_name} service: {e.stderr}")
+
 def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
     logging.info(SEPARATOR)
@@ -687,6 +720,8 @@ def main():
             dbname = cfg.get('dbname')
             dbuser = cfg.get('dbuser')
             dbpass = cfg.get('dbpass')
+        
+        restart_database_flag = confirm("Restart database before dump?", "n")
 
         if dry_run:
             logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}")
@@ -763,9 +798,15 @@ def main():
     start_time = time.time()
     logging.info(f"Started at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    if restart_webserver_flag:
+    if restart_webserver_flag or restart_database_flag:
         cache = apt.Cache()
+
+    if restart_webserver_flag:
         restart_webserver("stop", cache)
+
+    if restart_database_flag:
+        restart_database("restart", cache)
+        time.sleep(2) # Pause to ensure the DB is fully ready
 
     # Handle multithreading if multiple operations were selected
     if dir_backup and db_dump and git_clone:

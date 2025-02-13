@@ -195,7 +195,7 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
                 result = subprocess.run(dump_args, stdout=dump, stderr=subprocess.PIPE, text=True, check=True)
                 if result.stderr:
                     logging.warning(f"mysqldump warning: {result.stderr.strip()}")
-                logging.info(f"Database dump saved in {dump_file}")
+                logging.info(f"Database dump saved in {dump_file} - ({os.path.getsize(dump_file) / (1024 * 1024 * 1024):.2f} GB)")
     except (IOError, OSError) as file_error:
         logging.error(f"Failed to open {dump_file} for writing: {file_error}")
         return

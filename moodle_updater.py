@@ -688,6 +688,7 @@ def main():
         sys.exit(1)
 
     restart_webserver_flag = confirm("Restart webserver automatically?", "y")
+    restart_database_flag = False
     verbose = confirm("Do you want to enable verbose mode?", default='n')
 
     if dir_backup or git_clone:

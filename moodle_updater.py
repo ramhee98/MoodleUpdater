@@ -160,7 +160,13 @@ def f_dir_backup(path, moodle, full_backup, folder_backup_path):
     else:
         try:
             subprocess.run(['rsync', '-r', *exclude_args, path, backup_folder], check=True)
-            logging.info(f"Backup completed and saved in {backup_folder}")
+            # get file size of backup
+            size = 0
+            for path, dirs, files in os.walk(backup_folder):
+                for f in files:
+                    fp = os.path.join(path, f)
+                    size += os.path.getsize(fp)
+            logging.info(f"Backup completed and saved in {backup_folder} - ({size / (1014 * 1024 * 1024):.2f} GB)")
         except subprocess.CalledProcessError as e:
             logging.error(f"Backup failed: {e.stderr}")
 

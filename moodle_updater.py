@@ -286,7 +286,12 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
         if dry_run:
             logging.info(f"[Dry Run] Would remove directory: {clone_path}")
         else:
-            shutil.rmtree(clone_path)
+            try:
+                shutil.rmtree(clone_path)
+            except PermissionError:
+                logging.error(f"Permission denied while removing {clone_path}. Try running with elevated privileges.")
+            except Exception as e:
+                logging.error(f"Error removing directory {clone_path}: {e}")
 
     if dry_run:
         logging.info(f"[Dry Run] Would clone repository: {repository} to {path}")

@@ -57,6 +57,74 @@ class ConfigManager:
         if log_to_file:
             logging.info(f"Logging to file enabled. File path: {log_file_path}")
 
+class ApplicationSetup:
+    """Handles configuration loading, logging setup, and initial checks."""
+    
+    def __init__(self, config_path, config_template_path):
+        self.pwd = os.path.dirname(os.path.abspath(__file__))
+        self.config_path = config_path
+        self.config_template_path = config_template_path
+        self.config_manager = ConfigManager(self.config_path)
+        
+        # Load configuration
+        self.config = self.config_manager.config
+        
+        # Configure logging
+        self.config_manager.configure_logging()
+        
+        # Perform initial setup tasks
+        self.handle_auto_update()  # 🔹 This may modify config.ini
+
+        # Ensure config is reloaded if changed
+        self.config_manager = ConfigManager(self.config_path)  
+        self.config = self.config_manager.config  
+
+        # Ensure config file exists
+        self.ensure_config_exists()
+
+        # Load essential settings
+        self.load_core_settings()
+    
+    def handle_auto_update(self):
+        """Checks if auto-update is enabled and runs it if necessary."""
+        auto_update = self.config.get('settings', 'auto_update_script', fallback=False)
+        if auto_update == "True":
+            self_update(self.pwd, self.config_path, self.config_template_path)
+        else:
+            logging.info(SEPARATOR)
+            if confirm("Pull MoodleUpdater from GitHub?", "n"):
+                self_update(self.pwd, self.config_path, self.config_template_path)
+
+    def ensure_config_exists(self):
+        """Ensures the config file exists, otherwise creates one from the template."""
+        if not os.path.exists(self.config_path):
+            logging.error(f"Configuration file '{self.config_path}' not found.")
+            if os.path.exists(self.config_template_path):
+                shutil.copy(self.config_template_path, self.config_path)
+                logging.info("Configuration file has been created.")
+                logging.info("Please edit config.ini to your needs.")
+            else:
+                logging.error("Missing both config.ini and config_template.ini. Please create config.ini manually.")
+            sys.exit(1)
+
+    def load_core_settings(self):
+        """Loads core settings like paths, dry-run mode, and Moodle version."""
+        self.dry_run = self.config.get('settings', 'dry_run', fallback="False") == "True"
+        self.moodle = self.config.get('settings', 'moodle', fallback='moodle')
+        self.path = self.config.get('settings', 'path', fallback=self.pwd)
+        self.full_path = os.path.join(self.path, self.moodle)
+        self.configphppath = os.path.join(self.full_path, 'config.php')
+
+        # Detect Moodle version
+        local_release_version, _ = get_moodle_version(self.full_path)
+        logging.info(f"Moodle version detected: {local_release_version}")
+        logging.info(SEPARATOR)
+
+        # Log if dry-run mode is enabled
+        if self.dry_run:
+            logging.warning("[Dry Run] is enabled!")
+            logging.info(SEPARATOR)
+
 def get_moodle_version(moodle_path):
     """
     Retrieve Moodle version information.
@@ -619,56 +687,20 @@ def check_config_differences(config_path, template_path):
 def main():
     global runtime_backup, runtime_dump, runtime_clone, dry_run
 
-    # Load configuration
-    pwd = os.path.dirname(os.path.abspath(__file__))
-    CONFIG_PATH = os.path.join(pwd, 'config.ini')
-    CONFIG_TEMPLATE_PATH = os.path.join(pwd, 'config_template.ini')
-    # Initialize configuration manager
-    config_manager = ConfigManager(CONFIG_PATH)
-    # Configure logging
-    config_manager.configure_logging()
-    # Retrieve configuration
-    config = config_manager.config
+    # Initialize Application Setup
+    setup = ApplicationSetup(
+        config_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini'),
+        config_template_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config_template.ini')
+    )
 
-    # Auto-update the script if enabled
-    auto_update = config.get('settings', 'auto_update_script', fallback=False)
-    if auto_update == "True":
-        self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
-    else:
-        logging.info(SEPARATOR)
-        if confirm("Pull MoodleUpdater from GitHub?", "n"):
-            self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH)
-
-    # Check if the configuration file exists
-    if not os.path.exists(CONFIG_PATH):
-        logging.error(f"Configuration file '{CONFIG_PATH}' not found.")
-        if os.path.exists(CONFIG_TEMPLATE_PATH):
-            shutil.copy(CONFIG_TEMPLATE_PATH, CONFIG_PATH)
-            logging.info("Configuration file has been created.")
-            logging.info("Please edit config.ini to your needs.")
-        else:
-            logging.error("Missing both config.ini and config_template.ini. Please create config.ini manually.")
-        exit(1)
-
-    # Reload configuration
-    config = config_manager.config
-    dry_run = config.get('settings', 'dry_run', fallback="False") == "True"
-    moodle = config.get('settings', 'moodle', fallback='moodle')
-    path = config.get('settings', 'path', fallback=pwd)
-    full_path = os.path.join(path, moodle)
-    configphppath = os.path.join(full_path, 'config.php')
+    config = setup.config
+    pwd = setup.pwd
+    dry_run = setup.dry_run
+    moodle = setup.moodle
+    path = setup.path
+    full_path = setup.full_path
+    configphppath = setup.configphppath
     multithreading = False
-
-    # Get Moodle Release Version
-    local_release_version, _ = get_moodle_version(full_path)
-    logging.info(f"Moodle version detected: {local_release_version}")
-
-    logging.info(SEPARATOR)
-
-    # Log if dry-run mode is enabled
-    if dry_run:
-        logging.warning("[Dry Run] is enabled!")
-        logging.info(SEPARATOR)
 
     # Get user confirmation for operations
     dir_backup = confirm("Start directory backup process?", "y")

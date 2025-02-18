@@ -61,6 +61,9 @@ class ApplicationSetup:
     """Handles configuration loading, logging setup, and initial checks."""
     
     def __init__(self, config_path, config_template_path):
+        if os.geteuid() != 0:
+            sys.exit(f"This script must be run as root. Use 'sudo python3 {__file__}'")
+
         self.pwd = os.path.dirname(os.path.abspath(__file__))
         self.config_path = config_path
         self.config_template_path = config_template_path
@@ -311,11 +314,11 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
             logging.info(f"[Dry Run] Would sync and update git submodules in {clone_path}")
         else:
             try:
-                subprocess.run(['sudo', 'git', 'submodule', 'sync'], cwd=clone_path, check=True)
+                subprocess.run(['git', 'submodule', 'sync'], cwd=clone_path, check=True)
             except subprocess.CalledProcessError as e:
                 logging.error(f"Git submodule sync failed: {e.stderr}")
             try:
-                subprocess.run(['sudo', 'git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path, check=True)
+                subprocess.run(['git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path, check=True)
             except subprocess.CalledProcessError as e:
                 logging.error(f"Git submodule update failed: {e.stderr}")
 
@@ -326,7 +329,7 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
         with open(os.path.join(clone_path, 'config.php'), 'w') as config_file:
             config_file.write(config_php)
         try:
-            subprocess.run(['sudo', 'chown', 'www-data:www-data', clone_path, '-R'], check=True)
+            subprocess.run(['chown', 'www-data:www-data', clone_path, '-R'], check=True)
         except subprocess.CalledProcessError as e:
             logging.error(f"Setting folder ownership failed: {e.stderr}")
 
@@ -532,10 +535,10 @@ def restart_webserver(action, cache=None):
 
     logging.info(f"Attempting to {action} the {webserver} service.")
     if dry_run:
-        logging.info(f"[Dry Run] Would run: sudo systemctl {action} {webserver}")
+        logging.info(f"[Dry Run] Would run: systemctl {action} {webserver}")
     else:
         try:
-            subprocess.run(['sudo', 'systemctl', action, webserver], check=True)
+            subprocess.run(['systemctl', action, webserver], check=True)
             logging.info(f"{webserver} service {action}ed successfully.")
         except subprocess.CalledProcessError as e:
             logging.error(f"{action}ing {webserver} failed: {e.stderr}")
@@ -565,10 +568,10 @@ def restart_database(action, cache=None):
         logging.info(f"Attempting to {action} the {service_name} service.")
         
         if dry_run:
-            logging.info(f"[Dry Run] Would run: sudo systemctl {action} {service_name}")
+            logging.info(f"[Dry Run] Would run: systemctl {action} {service_name}")
         else:
             try:
-                subprocess.run(['sudo', 'systemctl', action, service_name], check=True)
+                subprocess.run(['systemctl', action, service_name], check=True)
                 logging.info(f"{service_name} service {action}ed successfully.")
             except subprocess.CalledProcessError as e:
                 logging.error(f"Failed to {action} the {service_name} service: {e.stderr}")

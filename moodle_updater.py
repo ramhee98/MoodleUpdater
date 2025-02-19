@@ -539,59 +539,67 @@ def get_commit_details(commit_hash, pwd):
 
     return "Unknown", "Unknown", "Unknown"
 
-def restart_webserver(action, cache=None):
-    """start / stop the apache or nginx webserver, depending on which one is installed"""
-    cache = cache or apt.Cache()
-    if cache["apache2"].is_installed:
-        webserver = "apache2"
-    elif cache["nginx"].is_installed:
-        webserver = "nginx"
-    else:
-        logging.warning("No supported web server found (Apache/Nginx).")
-        return
+class ServiceManager:
+    """Handles web and database service restarts."""
 
-    logging.info(f"Attempting to {action} the {webserver} service.")
-    if dry_run:
-        logging.info(f"[Dry Run] Would run: systemctl {action} {webserver}")
-    else:
-        try:
-            subprocess.run(['systemctl', action, webserver], check=True)
-            logging.info(f"{webserver} service {action}ed successfully.")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"{action}ing {webserver} failed: {e.stderr}")
+    def __init__(self, dry_run=False):
+        self.dry_run = dry_run
+        self.cache = apt.Cache()  # Load package cache once and reuse
 
-def restart_database(action, cache=None):
-    """Start / stop the installed database service, based on availability."""
-    cache = cache or apt.Cache()
-    
-    database_services = {
-        "mysql-server": "mysql",
-        "mariadb-server": "mariadb",
-        "postgresql": "postgresql",
-        "mssql-server": "mssql-server",
-        "mongodb": "mongodb",
-        "redis-server": "redis",
-    }
+    def restart_webserver(self, action):
+        """start / stop the apache or nginx webserver, depending on which one is installed"""
+        webserver = None
 
-    # Identify installed database services
-    installed_db_services = [service for service in database_services if service in cache and cache[service].is_installed]
+        if self.cache["apache2"].is_installed:
+            webserver = "apache2"
+        elif self.cache["nginx"].is_installed:
+            webserver = "nginx"
 
-    if not installed_db_services:
-        logging.warning("No supported database server found.")
-        return
+        if not webserver:
+            logging.warning("No supported web server found (Apache/Nginx).")
+            return
 
-    for db_service in installed_db_services:
-        service_name = database_services[db_service]
-        logging.info(f"Attempting to {action} the {service_name} service.")
-        
-        if dry_run:
-            logging.info(f"[Dry Run] Would run: systemctl {action} {service_name}")
+        logging.info(f"Attempting to {action} the {webserver} service.")
+
+        if self.dry_run:
+            logging.info(f"[Dry Run] Would run: systemctl {action} {webserver}")
         else:
-            try:
-                subprocess.run(['systemctl', action, service_name], check=True)
-                logging.info(f"{service_name} service {action}ed successfully.")
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Failed to {action} the {service_name} service: {e.stderr}")
+            self._run_systemctl(action, webserver)
+
+    def restart_database(self, action):
+        """Start / stop the installed database service, based on availability."""
+        database_services = {
+            "mysql-server": "mysql",
+            "mariadb-server": "mariadb",
+            "postgresql": "postgresql",
+            "mssql-server": "mssql-server",
+            "mongodb": "mongodb",
+            "redis-server": "redis",
+        }
+
+        # Identify installed database services
+        installed_db_services = [service for service in database_services if service in self.cache and self.cache[service].is_installed]
+
+        if not installed_db_services:
+            logging.warning("No supported database server found.")
+            return
+
+        for db_service in installed_db_services:
+            service_name = database_services[db_service]
+            logging.info(f"Attempting to {action} the {service_name} service.")
+
+            if self.dry_run:
+                logging.info(f"[Dry Run] Would run: systemctl {action} {service_name}")
+            else:
+                self._run_systemctl(action, service_name)
+
+    def _run_systemctl(self, action, service_name):
+        """Runs the systemctl command for service management."""
+        try:
+            subprocess.run(['systemctl', action, service_name], check=True)
+            logging.info(f"{service_name} service {action}ed successfully.")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to {action} the {service_name} service: {e.stderr}")
 
 def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
     """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
@@ -858,14 +866,13 @@ def main():
     start_time = time.time()
     logging.info(f"Started at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    if restart_webserver_flag or restart_database_flag:
-        cache = apt.Cache()
+    service_manager = ServiceManager(dry_run=False)  # Create an instance
 
     if restart_webserver_flag:
-        restart_webserver("stop", cache)
+        service_manager.restart_webserver("stop")
 
     if restart_database_flag:
-        restart_database("restart", cache)
+        service_manager.restart_database("restart")
         time.sleep(2) # Pause to ensure the DB is fully ready
 
     # Handle multithreading if multiple operations were selected
@@ -919,7 +926,7 @@ def main():
             f_git_clone(path, moodle, configphp, repo, branch, sync_submodules)
 
     if restart_webserver_flag:
-        restart_webserver("start", cache)
+        service_manager.restart_webserver("start")
 
     # Time calculation
     runtime = int(time.time() - start_time)  # Convert to integer seconds

@@ -57,6 +57,36 @@ class ConfigManager:
         if log_to_file:
             logging.info(f"Logging to file enabled. File path: {log_file_path}")
 
+    @staticmethod
+    def read_moodle_config(config_path):
+        """Reads the Moodle config.php file and extracts $CFG->dbname, $CFG->dbuser, and $CFG->dbpass."""
+        cfg_values = {}
+
+        try:
+            with open(config_path, 'r') as file:
+                content = file.read()
+
+            # Regular expressions to match $CFG->dbname, $CFG->dbuser, and $CFG->dbpass
+            patterns = {
+                'dbname': r"\$CFG->dbname\s*=\s*'([^']+)'",
+                'dbuser': r"\$CFG->dbuser\s*=\s*'([^']+)'",
+                'dbpass': r"\$CFG->dbpass\s*=\s*'([^']+)'",
+            }
+
+            for key, pattern in patterns.items():
+                match = re.search(pattern, content)
+                if match:
+                    cfg_values[key] = match.group(1)
+                else:
+                    cfg_values[key] = None
+
+        except FileNotFoundError:
+            logging.error(f"File {config_path} not found.")
+        except Exception as e:
+            logging.error(f"An error occurred while reading the Moodle config: {e}")
+
+        return cfg_values
+
 class ApplicationSetup:
     """Handles configuration loading, logging setup, and initial checks."""
     
@@ -486,35 +516,6 @@ class SystemMonitor:
         if hasattr(self, "dump_thread"):
             self.dump_thread.join()
 
-def read_moodle_config(config_path):
-    """Reads the Moodle config.php file and extracts $CFG->dbname, $CFG->dbuser, and $CFG->dbpass."""
-    cfg_values = {}
-
-    try:
-        with open(config_path, 'r') as file:
-            content = file.read()
-
-        # Regular expressions to match $CFG->dbname, $CFG->dbuser, and $CFG->dbpass
-        patterns = {
-            'dbname': r"\$CFG->dbname\s*=\s*'([^']+)'",
-            'dbuser': r"\$CFG->dbuser\s*=\s*'([^']+)'",
-            'dbpass': r"\$CFG->dbpass\s*=\s*'([^']+)'",
-        }
-
-        for key, pattern in patterns.items():
-            match = re.search(pattern, content)
-            if match:
-                cfg_values[key] = match.group(1)
-            else:
-                cfg_values[key] = None
-
-    except FileNotFoundError:
-        logging.error(f"File {config_path} not found.")
-    except Exception as e:
-        logging.error(f"An error occurred while reading the Moodle config: {e}")
-
-    return cfg_values
-
 def get_commit_details(commit_hash, pwd):
     """Retrieve commit details (time, author, summary) for a given commit hash."""
     try:
@@ -784,7 +785,7 @@ def main():
             while not dbpass.strip():
                 dbpass = input("Please enter DB password: ").strip()
         else:
-            cfg = read_moodle_config(configphppath)
+            cfg = ConfigManager.read_moodle_config(configphppath)
             dbname = cfg.get('dbname')
             dbuser = cfg.get('dbuser')
             dbpass = cfg.get('dbpass')

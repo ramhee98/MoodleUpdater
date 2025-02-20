@@ -825,24 +825,21 @@ def main():
         branch = config.get('settings', 'branch')
 
         # Get local and remote versions
-        release_version, build_version = get_moodle_version(full_path)
-        remote_release_version, remote_build_version = get_remote_moodle_version(repo, branch)
+        local_release, local_build = get_moodle_version(full_path)
+        remote_release, remote_build = get_remote_moodle_version(repo, branch)
 
-        if build_version != "Unknown" and remote_build_version != "Unknown":
+        if local_build != "Unknown" and remote_build != "Unknown":
             try:
-                local_version = float(build_version)
-                remote_version = float(remote_build_version)
-
-                if remote_version == local_version:
-                    logging.info(f"Local Moodle version ({release_version} - (Version: {build_version})) is up-to-date.")
-                elif remote_version > local_version:
-                    logging.info(f"Newer Moodle version available ({remote_release_version} - (Version: {remote_build_version}) > {release_version} - (Version: {build_version})). Proceeding with update.")
+                if float(remote_build) == float(local_build):
+                    logging.info(f"Local Moodle version ({local_release} - (Version: {local_build})) is up-to-date.")
+                elif float(remote_build) > float(local_build):
+                    logging.info(f"Newer Moodle version available ({remote_release} - (Version: {remote_build}) > {local_release} - (Version: {local_build})). Proceeding with update.")
                 else:
-                    logging.critical(f"Local Moodle version ({release_version} - (Version: {build_version})) is newer than remote ({remote_release_version} - (Version: {remote_build_version})). Skipping update.")
+                    logging.critical(f"Local Moodle version ({local_release} - (Version: {local_build})) is newer than remote ({remote_release} - (Version: {remote_build})). Skipping update.")
                     sys.exit(1)
 
             except Exception as e:
-                logging.error(f"Error parsing Moodle versions: local='{release_version}', remote='{remote_release_version}'. Exception: {e}")
+                logging.error(f"Error parsing Moodle versions: local='{local_release}', remote='{remote_release}'. Exception: {e}")
 
         if not confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
             customconfigphppath = input("Please enter a config.php path [press enter to skip]: ")

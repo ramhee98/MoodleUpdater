@@ -149,8 +149,9 @@ class ApplicationSetup:
         self.configphppath = os.path.join(self.full_path, 'config.php')
 
         # Detect Moodle version
-        local_release_version, _ = get_moodle_version(self.full_path)
-        logging.info(f"Moodle version detected: {local_release_version}")
+        checker = MoodleVersionChecker(self.full_path, None, None)
+        local_release, _ = checker.get_local_version()
+        logging.info(f"Moodle version detected: {local_release}")
         logging.info(SEPARATOR)
 
         # Log if dry-run mode is enabled
@@ -158,56 +159,59 @@ class ApplicationSetup:
             logging.warning("[Dry Run] is enabled!")
             logging.info(SEPARATOR)
 
-def get_moodle_version(moodle_path):
-    """
-    Retrieve Moodle version information.
-    :param moodle_path: Path to the Moodle installation directory.
-    :return: Tuple (release_version, build_version) or ("Unknown", "Unknown") if not found.
-    """
-    version_file = os.path.join(moodle_path, "version.php")
-    if not os.path.exists(version_file):
-        logging.warning("Moodle version file not found.")
-        return "Unknown", "Unknown"
+class MoodleVersionChecker:
+    """Handles retrieval of Moodle version information from local and remote sources."""
 
-    try:
-        with open(version_file, "r") as f:
-            content = f.read()
+    def __init__(self, moodle_path, repo_url, branch):
+        self.moodle_path = moodle_path
+        self.repo_url = repo_url
+        self.branch = branch
 
-        # Human-friendly version (e.g., "4.1+ (Build: 20240115)")
-        release_match = re.search(r"\$release\s*=\s*'([^']+)'", content)
-        # Numeric version (e.g., "2024042205.00")
-        build_match = re.search(r"\$version\s*=\s*([\d\.]+);", content)
+    def get_local_version(self):
+        """Retrieve Moodle version information from the local installation."""
+        version_file = os.path.join(self.moodle_path, "version.php")
 
-        return release_match.group(1) if release_match else "Unknown", build_match.group(1) if build_match else "Unknown"
-
-    except Exception as e:
-        logging.error(f"Error reading Moodle version: {e}")
-        return "Unknown", "Unknown"
-
-def get_remote_moodle_version(repo_url, branch):
-    """
-    Retrieve Moodle version information from the remote Git repository.
-    :param repo_url: URL of the Moodle Git repository.
-    :param branch: Branch to check the version from.
-    :return: Tuple (release_version, build_version) or ("Unknown", "Unknown") if not found.
-    """
-
-    version_url = f"{repo_url.replace('.git', '')}/raw/{branch}/version.php"
-    try:
-        response = requests.get(version_url, timeout=10)
-        if response.status_code == 200:
-            # Human-friendly version (e.g., "4.1+ (Build: 20240115)")
-            release_match = re.search(r"\$release\s*=\s*'([^']+)'", response.text)
-            # Numeric version (e.g., "2024042205.00")
-            build_match = re.search(r"\$version\s*=\s*([\d\.]+);", response.text)
-
-            return release_match.group(1) if release_match else "Unknown", build_match.group(1) if build_match else "Unknown"
-        else:
-            logging.warning(f"Failed to retrieve remote version (HTTP {response.status_code})")
+        if not os.path.exists(version_file):
+            logging.warning("Moodle version file not found.")
             return "Unknown", "Unknown"
-    except requests.RequestException as e:
-        logging.error(f"Error fetching remote version: {e}")
-        return "Unknown", "Unknown"
+
+        try:
+            with open(version_file, "r") as f:
+                content = f.read()
+
+            # Human-friendly version (e.g., "4.1+ (Build: 20240115)")
+            release_match = re.search(r"\$release\s*=\s*'([^']+)'", content)
+            # Numeric version (e.g., "2024042205.00")
+            build_match = re.search(r"\$version\s*=\s*([\d\.]+);", content)
+
+            return release_match.group(1) if release_match else "Unknown", \
+                   build_match.group(1) if build_match else "Unknown"
+
+        except Exception as e:
+            logging.error(f"Error reading Moodle version: {e}")
+            return "Unknown", "Unknown"
+
+    def get_remote_version(self):
+        """Retrieve Moodle version information from the remote Git repository."""
+        version_url = f"{self.repo_url.replace('.git', '')}/raw/{self.branch}/version.php"
+
+        try:
+            response = requests.get(version_url, timeout=10)
+            if response.status_code == 200:
+                # Human-friendly version (e.g., "4.1+ (Build: 20240115)")
+                release_match = re.search(r"\$release\s*=\s*'([^']+)'", response.text)
+                # Numeric version (e.g., "2024042205.00")
+                build_match = re.search(r"\$version\s*=\s*([\d\.]+);", response.text)
+
+                return release_match.group(1) if release_match else "Unknown", \
+                       build_match.group(1) if build_match else "Unknown"
+            else:
+                logging.warning(f"Failed to retrieve remote version (HTTP {response.status_code})")
+                return "Unknown", "Unknown"
+
+        except requests.RequestException as e:
+            logging.error(f"Error fetching remote version: {e}")
+            return "Unknown", "Unknown"
 
 def confirm(question, default=''):
     """Prompt the user for confirmation with optional default response and cancel functionality."""
@@ -825,8 +829,9 @@ def main():
         branch = config.get('settings', 'branch')
 
         # Get local and remote versions
-        local_release, local_build = get_moodle_version(full_path)
-        remote_release, remote_build = get_remote_moodle_version(repo, branch)
+        checker = MoodleVersionChecker(full_path, repo, branch)
+        local_release, local_build = checker.get_local_version()
+        remote_release, remote_build = checker.get_remote_version()
 
         if local_build != "Unknown" and remote_build != "Unknown":
             try:

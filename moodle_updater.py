@@ -229,7 +229,7 @@ def confirm(question, default=''):
         elif default and user_input == '':
             return valid_responses.get(default.lower(), False)
 
-def f_dir_backup(path, moodle, full_backup, folder_backup_path):
+def dir_backup(path, moodle, full_backup, folder_backup_path):
     """Handle directory backups using rsync."""
     global runtime_backup
     start = time.time()
@@ -268,7 +268,7 @@ def f_dir_backup(path, moodle, full_backup, folder_backup_path):
 
     runtime_backup = int(time.time() - start)
 
-def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
+def db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
     """Perform database dump using mysqldump with progress monitoring."""
     global runtime_dump
     start = time.time()
@@ -309,7 +309,7 @@ def f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
 
     runtime_dump = int(time.time() - start)
 
-def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
+def git_clone(path, moodle, config_php, repository, branch, sync_submodules):
     """Clone a git repository."""
     global runtime_clone
     start = time.time()
@@ -368,11 +368,11 @@ def f_git_clone(path, moodle, config_php, repository, branch, sync_submodules):
     runtime_clone = int(time.time() - start)
     logging.info(f"Git clone completed in {runtime_clone} seconds.")
 
-def f_dir_backup_git_clone(path, moodle, config_php, full_backup, folder_backup_path, repo, branch, sync_submodules):
+def dir_backup_git_clone(path, moodle, config_php, full_backup, folder_backup_path, repo, branch, sync_submodules):
     """Perform directory backup and then git clone."""
     logging.info("Starting directory backup and git clone.")
-    f_dir_backup(path, moodle, full_backup, folder_backup_path)
-    f_git_clone(path, moodle, config_php, repo, branch, sync_submodules)
+    dir_backup(path, moodle, full_backup, folder_backup_path)
+    git_clone(path, moodle, config_php, repo, branch, sync_submodules)
 
 class SystemMonitor:
     """Monitors system resource usage and database dump progress."""
@@ -883,10 +883,10 @@ def main():
         multithreading = True
 
         t_backup_clone = threading.Thread(
-            target=f_dir_backup_git_clone,
+            target=dir_backup_git_clone,
             args=(path, moodle, configphp, full_backup, folder_backup_path, repo, branch, sync_submodules,)
         )
-        t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
+        t_dump = threading.Thread(target=db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
         logging.info("Starting directory backup, git clone, and database dump (multithreaded).")
         t_backup_clone.start()
@@ -896,8 +896,8 @@ def main():
     elif dir_backup and db_dump:
         multithreading = True
 
-        t_backup = threading.Thread(target=f_dir_backup, args=(path, moodle, full_backup, folder_backup_path,))
-        t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
+        t_backup = threading.Thread(target=dir_backup, args=(path, moodle, full_backup, folder_backup_path,))
+        t_dump = threading.Thread(target=db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
         logging.info("Starting directory backup and database dump (multithreaded).")
         t_backup.start()
@@ -907,8 +907,8 @@ def main():
     elif db_dump and git_clone:
         multithreading = True
 
-        t_dump = threading.Thread(target=f_db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
-        t_clone = threading.Thread(target=f_git_clone, args=(path, moodle, configphp, repo, branch, sync_submodules,))
+        t_dump = threading.Thread(target=db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
+        t_clone = threading.Thread(target=git_clone, args=(path, moodle, configphp, repo, branch, sync_submodules,))
 
         logging.info("Starting database dump and git clone (multithreaded).")
         t_dump.start()
@@ -918,15 +918,15 @@ def main():
     else:
         if dir_backup:
             logging.info("Starting directory backup")
-            f_dir_backup(path, moodle, full_backup, folder_backup_path)
+            dir_backup(path, moodle, full_backup, folder_backup_path)
 
         if db_dump:
             logging.info("Starting database dump")
-            f_db_dump(dbname, dbuser, dbpass, verbose, db_dump_path)
+            db_dump(dbname, dbuser, dbpass, verbose, db_dump_path)
 
         if git_clone:
             logging.info("Starting git clone")
-            f_git_clone(path, moodle, configphp, repo, branch, sync_submodules)
+            git_clone(path, moodle, configphp, repo, branch, sync_submodules)
 
     if restart_webserver_flag:
         service_manager.restart_webserver("start")

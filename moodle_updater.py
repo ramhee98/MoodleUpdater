@@ -114,7 +114,7 @@ class ApplicationSetup:
 
         # Load essential settings
         self.load_core_settings()
-    
+
     def handle_auto_update(self):
         """Checks if auto-update is enabled and runs it if necessary."""
         auto_update = self.config.get('settings', 'auto_update_script', fallback=False)
@@ -122,7 +122,7 @@ class ApplicationSetup:
             self_update(self.pwd, self.config_path, self.config_template_path)
         else:
             logging.info(SEPARATOR)
-            if confirm("Pull MoodleUpdater from GitHub?", "n"):
+            if self.confirm("Pull MoodleUpdater from GitHub?", "n"):
                 self_update(self.pwd, self.config_path, self.config_template_path)
 
     def ensure_config_exists(self):
@@ -155,6 +155,23 @@ class ApplicationSetup:
         if self.dry_run:
             logging.warning("[Dry Run] is enabled!")
             logging.info(SEPARATOR)
+
+    @staticmethod
+    def confirm(question, default=''):
+        """Prompt the user for confirmation with optional default response and cancel functionality."""
+        valid_responses = {'y': True, 'n': False, 'c': None}
+        option = "Yes(y)/No(n)/Cancel(c)" + (f" Default={default}" if default else "")
+
+        while True:
+            user_input = input(f"{question} {option}: ").strip().lower()
+
+            if user_input in valid_responses:
+                if user_input == 'c':  # Cancel case
+                    logging.warning("User canceled the operation.")
+                    exit(1)
+                return valid_responses[user_input]
+            elif default and user_input == '':
+                return valid_responses.get(default.lower(), False)
 
 class MoodleVersionChecker:
     """Handles retrieval of Moodle version information from local and remote sources."""
@@ -209,22 +226,6 @@ class MoodleVersionChecker:
         except requests.RequestException as e:
             logging.error(f"Error fetching remote version: {e}")
             return "Unknown", "Unknown"
-
-def confirm(question, default=''):
-    """Prompt the user for confirmation with optional default response and cancel functionality."""
-    valid_responses = {'y': True, 'n': False, 'c': None}
-    option = "Yes(y)/No(n)/Cancel(c)" + (f" Default={default}" if default else "")
-
-    while True:
-        user_input = input(f"{question} {option}: ").strip().lower()
-
-        if user_input in valid_responses:
-            if user_input == 'c':  # Cancel case
-                logging.warning("User canceled the operation.")
-                exit(1)
-            return valid_responses[user_input]
-        elif default and user_input == '':
-            return valid_responses.get(default.lower(), False)
 
 class MoodleBackupManager:
     """Manages directory backups, database dumps, and Git clone operations for Moodle."""
@@ -753,9 +754,9 @@ def main():
     multithreading = False
 
     # Get user confirmation for operations
-    dir_backup = confirm("Start directory backup process?", "y")
-    db_dump = confirm("Start DB dump process?", "y")
-    git_clone = confirm("Start git clone process?", "y")
+    dir_backup = ApplicationSetup.confirm("Start directory backup process?", "y")
+    db_dump = ApplicationSetup.confirm("Start DB dump process?", "y")
+    git_clone = ApplicationSetup.confirm("Start git clone process?", "y")
 
     logging.info(SEPARATOR)
     logging.info(f"dirbackup: {dir_backup}")
@@ -781,19 +782,19 @@ def main():
         dry_run=dry_run
     )
 
-    restart_webserver_flag = confirm("Restart webserver automatically?", "y")
+    restart_webserver_flag = ApplicationSetup.confirm("Restart webserver automatically?", "y")
     restart_database_flag = False
-    verbose = confirm("Do you want to enable verbose mode?", default='n')
+    verbose = ApplicationSetup.confirm("Do you want to enable verbose mode?", default='n')
 
     if dir_backup or git_clone:
         logging.info("Preparing Moodle directory path.")
-        if not confirm(f"Is this the correct Moodle directory? {path}", "y"):
+        if not ApplicationSetup.confirm(f"Is this the correct Moodle directory? {path}", "y"):
             path = input("Please enter a path: ").rstrip("/")
             full_path = os.path.join(path, moodle)
 
     # Directory backup process
     if dir_backup:
-        full_backup = confirm("Backup entire folder (containing moodle, moodledata, and data)?", "n")
+        full_backup = ApplicationSetup.confirm("Backup entire folder (containing moodle, moodledata, and data)?", "n")
 
     # Database dump process
     if db_dump:
@@ -814,7 +815,7 @@ def main():
             dbuser = cfg.get('dbuser')
             dbpass = cfg.get('dbpass')
         
-        restart_database_flag = confirm("Restart database before dump?", "n")
+        restart_database_flag = ApplicationSetup.confirm("Restart database before dump?", "n")
 
         if dry_run:
             logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}")
@@ -866,7 +867,7 @@ def main():
             except Exception as e:
                 logging.error(f"Error parsing Moodle versions: local='{local_release}', remote='{remote_release}'. Exception: {e}")
 
-        if not confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
+        if not ApplicationSetup.confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
             customconfigphppath = input("Please enter a config.php path [press enter to skip]: ")
             if customconfigphppath:
                 with open(customconfigphppath, 'r') as file:
@@ -877,12 +878,12 @@ def main():
             with open(configphppath, 'r') as file:
                 configphp = file.read()
 
-        if not confirm(f"Do you want to git checkout {branch}?", "y"):
+        if not ApplicationSetup.confirm(f"Do you want to git checkout {branch}?", "y"):
             branch = input("Please enter custom branch: ")
 
-        sync_submodules = confirm("Do you want to sync and update all submodules?", "y")
+        sync_submodules = ApplicationSetup.confirm("Do you want to sync and update all submodules?", "y")
 
-    if not confirm("Do you want to confirm the installation?"):
+    if not ApplicationSetup.confirm("Do you want to confirm the installation?"):
         logging.warning("User canceled the operation.")
         exit(1)
     # Start operations

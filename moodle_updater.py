@@ -973,7 +973,7 @@ def main():
         runtime_clone = 0
 
     # Log total runtime
-    logging.info("Total time needed: %d seconds", runtime)
+    logging.info("Total execution time (excluding user input): %d seconds", runtime)
     if multithreading:
         logging.info("Time saved with multithreading: %d seconds", runtime_backup + runtime_dump + runtime_clone - runtime)
 

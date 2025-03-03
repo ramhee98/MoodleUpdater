@@ -18,9 +18,6 @@ from logging.handlers import RotatingFileHandler
 SEPARATOR = "-------------------------------------------------------------------------"
 
 # Runtime globals
-runtime_backup = None
-runtime_dump = None
-runtime_clone = None
 dry_run = False
 
 class ConfigManager:
@@ -229,150 +226,165 @@ def confirm(question, default=''):
         elif default and user_input == '':
             return valid_responses.get(default.lower(), False)
 
-def dir_backup(path, moodle, full_backup, folder_backup_path):
-    """Handle directory backups using rsync."""
-    global runtime_backup
-    start = time.time()
+class MoodleBackupManager:
+    """Manages directory backups, database dumps, and Git clone operations for Moodle."""
 
-    if(full_backup):
-        path = os.path.join(path, '')
-        backup_type = "full"
-    else:
-        path = os.path.join(path, moodle, '')
-        backup_type = "partial"
+    def __init__(self, path, moodle, folder_backup_path, dry_run=False):
+        self.path = path
+        self.moodle = moodle
+        self.folder_backup_path = folder_backup_path
+        self.dry_run = dry_run
+        self.runtime_backup = None
+        self.runtime_dump = None
+        self.runtime_clone = None
 
-    backup_folder = os.path.join(folder_backup_path, f"{moodle}_bak_{backup_type}_{time.strftime('%Y-%m-%d-%H-%M-%S')}")
-    exclude_args = [
-        '--exclude', 'moodledata/cache',
-        '--exclude', 'moodledata/localcache',
-        '--exclude', 'moodledata/sessions',
-        '--exclude', 'moodledata/temp',
-        '--exclude', 'moodledata/trashdir',
-    ] if full_backup else []
+    def dir_backup(self, full_backup):
+        """Handle directory backups using rsync."""
+        start = time.time()
 
-    logging.info(f"Starting {backup_type} backup of {path} to {backup_folder}")
-    if dry_run:
-        logging.info(f"[Dry Run] Would run: rsync{' '.join(exclude_args)} {path} {backup_folder}")
-    else:
-        try:
-            subprocess.run(['rsync', '-r', *exclude_args, path, backup_folder], check=True)
-            # get file size of backup
-            size = 0
-            for path, dirs, files in os.walk(backup_folder):
-                for f in files:
-                    fp = os.path.join(path, f)
-                    size += os.path.getsize(fp)
-            logging.info(f"Backup completed and saved in {backup_folder} - ({size / (1014 * 1024 * 1024):.2f} GB)")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Backup failed: {e.stderr}")
+        backup_type = "full" if full_backup else "partial"
+        source_path = os.path.join(self.path, '') if full_backup else os.path.join(self.path, self.moodle, '')
+        backup_folder = os.path.join(
+            self.folder_backup_path,
+            f"{self.moodle}_bak_{backup_type}_{time.strftime('%Y-%m-%d-%H-%M-%S')}"
+        )
 
-    runtime_backup = int(time.time() - start)
+        exclude_args = [
+            '--exclude', 'moodledata/cache',
+            '--exclude', 'moodledata/localcache',
+            '--exclude', 'moodledata/sessions',
+            '--exclude', 'moodledata/temp',
+            '--exclude', 'moodledata/trashdir',
+        ] if full_backup else []
 
-def db_dump(dbname, dbuser, dbpass, verbose, db_dump_path):
-    """Perform database dump using mysqldump with progress monitoring."""
-    global runtime_dump
-    start = time.time()
+        logging.info(f"Starting {backup_type} backup from {source_path} to {backup_folder}")
 
-    dump_file = os.path.join(db_dump_path, f"{dbname}_{time.strftime('%Y-%m-%d-%H-%M-%S')}.sql")
-    dump_args = ['mysqldump', '-u', dbuser, f'-p{dbpass}', '--single-transaction', '--skip-lock-tables', '--max_allowed_packet=100M', '--quick', '--databases', dbname]
-    if verbose:
-        dump_args.append('--verbose')
-
-    logging.info(f"Starting database dump for {dbname} to {dump_file}")
-
-    # Initialize SystemMonitor
-    monitor = SystemMonitor()
-
-    # Start monitoring during database dump
-    monitor.start_monitoring(dump_file)
-
-    try:
-        if dry_run:
-            sanitized_args = [arg if not arg.startswith('-p') else '-p *****' for arg in dump_args]
-            logging.info(f"[Dry Run] Would run: {' '.join(sanitized_args)}")
-            time.sleep(10)
-        else:
-            with open(dump_file, "w") as dump:
-                result = subprocess.run(dump_args, stdout=dump, stderr=subprocess.PIPE, text=True, check=True)
-                if result.stderr:
-                    logging.warning(f"mysqldump warning: {result.stderr.strip()}")
-                logging.info(f"Database dump saved in {dump_file} - ({os.path.getsize(dump_file) / (1024 * 1024 * 1024):.2f} GB)")
-    except (IOError, OSError) as file_error:
-        logging.error(f"Failed to open {dump_file} for writing: {file_error}")
-        return
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Database dump failed: {e.stderr.strip()}")
-        return
-    finally:
-        # Stop monitoring
-        monitor.stop_monitoring()
-
-    runtime_dump = int(time.time() - start)
-
-def git_clone(path, moodle, config_php, repository, branch, sync_submodules):
-    """Clone a git repository."""
-    global runtime_clone
-    start = time.time()
-
-    clone_path = os.path.join(path, moodle)
-
-    if os.path.exists(clone_path):
-        if dry_run:
-            logging.info(f"[Dry Run] Would remove directory: {clone_path}")
+        if self.dry_run:
+            logging.info(f"[Dry Run] Would run: rsync {' '.join(exclude_args)} {source_path} {backup_folder}")
         else:
             try:
-                shutil.rmtree(clone_path)
-            except PermissionError:
-                logging.error(f"Permission denied while removing {clone_path}. Try running with elevated privileges.")
-            except Exception as e:
-                logging.error(f"Error removing directory {clone_path}: {e}")
-
-    if dry_run:
-        logging.info(f"[Dry Run] Would clone repository: {repository} to {path}")
-        logging.info(f"[Dry Run] Would checkout branch: {branch} to {clone_path}")
-    else:
-        try:
-            subprocess.run(['git', 'clone', repository, clone_path], check=True)
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Git clone failed: {e.stderr}")
-        try:
-            subprocess.run(['git', '-C', clone_path, 'checkout', branch], check=True)
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Git checkout failed: {e.stderr}")
-
-    if sync_submodules:
-        if dry_run:
-            logging.info(f"[Dry Run] Would sync and update git submodules in {clone_path}")
-        else:
-            try:
-                subprocess.run(['git', 'submodule', 'sync'], cwd=clone_path, check=True)
+                subprocess.run(['rsync', '-r', *exclude_args, source_path, backup_folder], check=True)
+                size = sum(
+                    os.path.getsize(os.path.join(root, file))
+                    for root, _, files in os.walk(backup_folder)
+                    for file in files
+                )
+                logging.info(f"Backup completed and saved in {backup_folder} - ({size / (1024 * 1024 * 1024):.2f} GB)")
             except subprocess.CalledProcessError as e:
-                logging.error(f"Git submodule sync failed: {e.stderr}")
-            try:
-                subprocess.run(['git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path, check=True)
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Git submodule update failed: {e.stderr}")
+                logging.error(f"Backup failed: {e.stderr}")
 
-    if dry_run:
-        logging.info(f"[Dry Run] Would create config.php in {clone_path}")
-        logging.info(f"[Dry Run] Would set ownership of {clone_path} to www-data:www-data.")
-    else:
-        with open(os.path.join(clone_path, 'config.php'), 'w') as config_file:
-            config_file.write(config_php)
+        self.runtime_backup = int(time.time() - start)
+
+    def db_dump(self, dbname, dbuser, dbpass, verbose, db_dump_path):
+        """Perform database dump using mysqldump with progress monitoring."""
+        start = time.time()
+
+        dump_file = os.path.join(
+            db_dump_path,
+            f"{dbname}_{time.strftime('%Y-%m-%d-%H-%M-%S')}.sql"
+        )
+        dump_args = [
+            'mysqldump', '-u', dbuser, f'-p{dbpass}',
+            '--single-transaction', '--skip-lock-tables',
+            '--max_allowed_packet=100M', '--quick', '--databases', dbname
+        ]
+
+        if verbose:
+            dump_args.append('--verbose')
+
+        logging.info(f"Starting database dump for {dbname} to {dump_file}")
+
+        # Initialize SystemMonitor
+        monitor = SystemMonitor()
+
+        # Start monitoring during database dump
+        monitor.start_monitoring(dump_file)
+
         try:
-            subprocess.run(['chown', 'www-data:www-data', clone_path, '-R'], check=True)
+            if dry_run:
+                sanitized_args = [arg if not arg.startswith('-p') else '-p *****' for arg in dump_args]
+                logging.info(f"[Dry Run] Would run: {' '.join(sanitized_args)}")
+                time.sleep(10)
+            else:
+                with open(dump_file, "w") as dump:
+                    result = subprocess.run(dump_args, stdout=dump, stderr=subprocess.PIPE, text=True, check=True)
+                    if result.stderr:
+                        logging.warning(f"mysqldump warning: {result.stderr.strip()}")
+                    logging.info(f"Database dump saved in {dump_file} - ({os.path.getsize(dump_file) / (1024 * 1024 * 1024):.2f} GB)")
+        except (IOError, OSError) as file_error:
+            logging.error(f"Failed to open {dump_file} for writing: {file_error}")
+            return
         except subprocess.CalledProcessError as e:
-            logging.error(f"Setting folder ownership failed: {e.stderr}")
+            logging.error(f"Database dump failed: {e.stderr.strip()}")
+            return
+        finally:
+            # Stop monitoring
+            monitor.stop_monitoring()
 
-    logging.info("Finished git clone process")
-    runtime_clone = int(time.time() - start)
-    logging.info(f"Git clone completed in {runtime_clone} seconds.")
+        self.runtime_dump = int(time.time() - start)
 
-def dir_backup_git_clone(path, moodle, config_php, full_backup, folder_backup_path, repo, branch, sync_submodules):
-    """Perform directory backup and then git clone."""
-    logging.info("Starting directory backup and git clone.")
-    dir_backup(path, moodle, full_backup, folder_backup_path)
-    git_clone(path, moodle, config_php, repo, branch, sync_submodules)
+    def git_clone(self, config_php, repository, branch, sync_submodules):
+        """Clone a git repository."""
+        start = time.time()
+        clone_path = os.path.join(self.path, self.moodle)
+
+        if os.path.exists(clone_path):
+            if self.dry_run:
+                logging.info(f"[Dry Run] Would remove existing directory: {clone_path}")
+            else:
+                try:
+                    shutil.rmtree(clone_path)
+                except PermissionError:
+                    logging.error(f"Permission denied while removing {clone_path}. Try running with elevated privileges.")
+                except Exception as e:
+                    logging.error(f"Error removing directory {clone_path}: {e}")
+
+        if self.dry_run:
+            logging.info(f"[Dry Run] Would clone repository: {repository} to {self.path}")
+            logging.info(f"[Dry Run] Would checkout branch: {branch} to {clone_path}")
+        else:
+            try:
+                subprocess.run(['git', 'clone', repository, clone_path], check=True)
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Git clone failed: {e.stderr}")
+            try:
+                subprocess.run(['git', '-C', clone_path, 'checkout', branch], check=True)
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Git checkout failed: {e.stderr}")
+
+        if sync_submodules:
+            if dry_run:
+                logging.info(f"[Dry Run] Would sync and update git submodules in {clone_path}")
+            else:
+                try:
+                    subprocess.run(['git', 'submodule', 'sync'], cwd=clone_path, check=True)
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Git submodule sync failed: {e.stderr}")
+                try:
+                    subprocess.run(['git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path, check=True)
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Git submodule update failed: {e.stderr}")
+
+        if self.dry_run:
+            logging.info(f"[Dry Run] Would create config.php in {clone_path}")
+            logging.info(f"[Dry Run] Would set ownership of {clone_path} to www-data:www-data.")
+        else:
+            with open(os.path.join(clone_path, 'config.php'), 'w') as config_file:
+                config_file.write(config_php)
+            try:
+                subprocess.run(['chown', 'www-data:www-data', clone_path, '-R'], check=True)
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Setting folder ownership failed: {e.stderr}")
+
+        logging.info("Finished git clone process")
+        self.runtime_clone = int(time.time() - start)
+        logging.info(f"Git clone completed in {self.runtime_clone} seconds.")
+
+    def dir_backup_and_git_clone(self, config_php, full_backup, repo, branch, sync_submodules):
+        """Perform directory backup followed by git clone."""
+        logging.info("Starting directory backup and git clone process.")
+        self.dir_backup(full_backup)
+        self.git_clone(config_php, repo, branch, sync_submodules)
 
 class SystemMonitor:
     """Monitors system resource usage and database dump progress."""
@@ -723,7 +735,7 @@ def check_config_differences(config_path, template_path):
         logging.error(f"Error while checking configuration differences: {e}")
 
 def main():
-    global runtime_backup, runtime_dump, runtime_clone, dry_run
+    global dry_run
 
     # Initialize Application Setup
     setup = ApplicationSetup(
@@ -756,6 +768,19 @@ def main():
         logging.warning("No tasks selected. Script aborted.")
         sys.exit(1)
 
+    folder_backup_path = config.get('settings', 'folder_backup_path', fallback='pwd')
+    if folder_backup_path in ["pwd", ""]:
+        folder_backup_path = pwd
+    if not folder_backup_path.endswith("/"):
+        folder_backup_path = os.path.join(folder_backup_path, '')
+
+    backup_manager = MoodleBackupManager(
+        path=path,
+        moodle=moodle,
+        folder_backup_path=folder_backup_path,
+        dry_run=dry_run
+    )
+
     restart_webserver_flag = confirm("Restart webserver automatically?", "y")
     restart_database_flag = False
     verbose = confirm("Do you want to enable verbose mode?", default='n')
@@ -768,11 +793,6 @@ def main():
 
     # Directory backup process
     if dir_backup:
-        folder_backup_path = config.get('settings', 'folder_backup_path', fallback='pwd')
-        if folder_backup_path in ["pwd", ""]:
-            folder_backup_path = pwd
-        if not folder_backup_path.endswith("/"):
-            folder_backup_path = os.path.join(folder_backup_path, '')
         full_backup = confirm("Backup entire folder (containing moodle, moodledata, and data)?", "n")
 
     # Database dump process
@@ -883,10 +903,10 @@ def main():
         multithreading = True
 
         t_backup_clone = threading.Thread(
-            target=dir_backup_git_clone,
-            args=(path, moodle, configphp, full_backup, folder_backup_path, repo, branch, sync_submodules,)
+            target=backup_manager.dir_backup_and_git_clone,
+            args=(configphp, full_backup, repo, branch, sync_submodules,)
         )
-        t_dump = threading.Thread(target=db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
+        t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
         logging.info("Starting directory backup, git clone, and database dump (multithreaded).")
         t_backup_clone.start()
@@ -896,8 +916,8 @@ def main():
     elif dir_backup and db_dump:
         multithreading = True
 
-        t_backup = threading.Thread(target=dir_backup, args=(path, moodle, full_backup, folder_backup_path,))
-        t_dump = threading.Thread(target=db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
+        t_backup = threading.Thread(target=backup_manager.dir_backup, args=(full_backup,))
+        t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
         logging.info("Starting directory backup and database dump (multithreaded).")
         t_backup.start()
@@ -907,8 +927,8 @@ def main():
     elif db_dump and git_clone:
         multithreading = True
 
-        t_dump = threading.Thread(target=db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
-        t_clone = threading.Thread(target=git_clone, args=(path, moodle, configphp, repo, branch, sync_submodules,))
+        t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
+        t_clone = threading.Thread(target=backup_manager.git_clone, args=(configphp, repo, branch, sync_submodules,))
 
         logging.info("Starting database dump and git clone (multithreaded).")
         t_dump.start()
@@ -918,21 +938,23 @@ def main():
     else:
         if dir_backup:
             logging.info("Starting directory backup")
-            dir_backup(path, moodle, full_backup, folder_backup_path)
+            backup_manager.dir_backup(full_backup,)
 
         if db_dump:
             logging.info("Starting database dump")
-            db_dump(dbname, dbuser, dbpass, verbose, db_dump_path)
+            backup_manager.db_dump(dbname, dbuser, dbpass, verbose, db_dump_path)
 
         if git_clone:
             logging.info("Starting git clone")
-            git_clone(path, moodle, configphp, repo, branch, sync_submodules)
+            backup_manager.git_clone(configphp, repo, branch, sync_submodules)
 
     if restart_webserver_flag:
         service_manager.restart_webserver("start")
 
-    # Time calculation
     runtime = int(time.time() - start_time)  # Convert to integer seconds
+    runtime_backup = backup_manager.runtime_backup
+    runtime_dump = backup_manager.runtime_dump
+    runtime_clone = backup_manager.runtime_clone
 
     # Log if any operation times were recorded
     if runtime_backup:

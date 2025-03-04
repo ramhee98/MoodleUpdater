@@ -12,11 +12,11 @@ SEPARATOR = "-------------------------------------------------------------------
 class ApplicationSetup:
     """Handles configuration loading, logging setup, and initial checks."""
     
-    def __init__(self, config_path, config_template_path):
+    def __init__(self, pwd, config_path, config_template_path):
         if os.geteuid() != 0:
             sys.exit(f"This script must be run as root. Use 'sudo python3 {__file__}'")
 
-        self.pwd = os.path.dirname(os.path.abspath(__file__))
+        self.pwd = pwd
         self.config_path = config_path
         self.config_template_path = config_template_path
         self.config_manager = ConfigManager(self.config_path)

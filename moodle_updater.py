@@ -24,15 +24,16 @@ dry_run = False
 
 def main():
     global dry_run
+    pwd = os.path.dirname(os.path.abspath(__file__))
 
     # Initialize Application Setup
     setup = ApplicationSetup(
-        config_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini'),
-        config_template_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config_template.ini')
+        pwd=pwd,
+        config_path=os.path.join(pwd, 'config.ini'),
+        config_template_path=os.path.join(pwd, 'config_template.ini')
     )
 
     config = setup.config
-    pwd = setup.pwd
     dry_run = setup.dry_run
     moodle = setup.moodle
     path = setup.path

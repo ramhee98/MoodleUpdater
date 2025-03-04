@@ -2,3 +2,8 @@ config.ini
 *.sql
 *_bak_*
 *.log
+
+# Ignore compiled Python files
+__pycache__/
+*.pyc
+*.pyo

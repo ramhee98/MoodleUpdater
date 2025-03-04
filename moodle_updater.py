@@ -84,6 +84,29 @@ class ConfigManager:
 
         return cfg_values
 
+    @staticmethod
+    def check_config_differences(config_path, template_path):
+        """Check for differences between config.ini and config_template.ini."""
+        logging.info("Checking configuration differences.")
+        try:
+            config = configparser.ConfigParser(interpolation=None)
+            template = configparser.ConfigParser(interpolation=None)
+            config.read(config_path)
+            template.read(template_path)
+
+            all_sections = set(config.sections()).union(set(template.sections()))
+            for section in all_sections:
+                config_items = set(config.items(section)) if config.has_section(section) else set()
+                template_items = set(template.items(section)) if template.has_section(section) else set()
+                added = template_items - config_items
+                removed = config_items - template_items
+
+                if added or removed:
+                    logging.warning(f"Differences in section {section}: Added={added}, Removed={removed}")
+
+        except Exception as e:
+            logging.error(f"Error while checking configuration differences: {e}")
+
 class ApplicationSetup:
     """Handles configuration loading, logging setup, and initial checks."""
     
@@ -607,7 +630,7 @@ class GitManager:
                 logging.error(f"Checking for uncommited changes failed: {e.stderr}")
             if status_result.stdout.strip():
                 logging.warning("Local changes detected. Skipping self-update to avoid conflicts.")
-                check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
+                ConfigManager.check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
                 return
 
             # Pull the latest changes from the remote repository to update the script.
@@ -622,7 +645,7 @@ class GitManager:
 
             if "Already up to date." in pull_result.stdout:
                 logging.info("The script is already up to date.")
-                check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
+                ConfigManager.check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
             else:
                 # Get updated commit details
                 try:
@@ -645,7 +668,7 @@ class GitManager:
                 logging.info(f"  Author: {updated_commit_author}")
                 logging.info(f"  Summary: {updated_commit_summary}")
 
-                check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
+                ConfigManager.check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
 
                 # Restart the script with the updated version
                 logging.info("Restarting the script...")
@@ -717,28 +740,6 @@ class ServiceManager:
             logging.info(f"{service_name} service {action}ed successfully.")
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to {action} the {service_name} service: {e.stderr}")
-
-def check_config_differences(config_path, template_path):
-    """Check for differences between config.ini and config_template.ini."""
-    logging.info("Checking configuration differences.")
-    try:
-        config = configparser.ConfigParser(interpolation=None)
-        template = configparser.ConfigParser(interpolation=None)
-        config.read(config_path)
-        template.read(template_path)
-
-        all_sections = set(config.sections()).union(set(template.sections()))
-        for section in all_sections:
-            config_items = set(config.items(section)) if config.has_section(section) else set()
-            template_items = set(template.items(section)) if template.has_section(section) else set()
-            added = template_items - config_items
-            removed = config_items - template_items
-
-            if added or removed:
-                logging.warning(f"Differences in section {section}: Added={added}, Removed={removed}")
-
-    except Exception as e:
-        logging.error(f"Error while checking configuration differences: {e}")
 
 def main():
     global dry_run

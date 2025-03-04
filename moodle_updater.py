@@ -19,11 +19,8 @@ from modules.service_manager import ServiceManager
 # Constants
 SEPARATOR = "-------------------------------------------------------------------------"
 
-# Runtime globals
-dry_run = False
-
 def main():
-    global dry_run
+    dry_run = False
     pwd = os.path.dirname(os.path.abspath(__file__))
 
     # Initialize Application Setup

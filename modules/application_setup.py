@@ -13,9 +13,6 @@ class ApplicationSetup:
     """Handles configuration loading, logging setup, and initial checks."""
     
     def __init__(self, pwd, config_path, config_template_path):
-        if os.geteuid() != 0:
-            sys.exit(f"This script must be run as root. Use 'sudo python3 {__file__}'")
-
         self.pwd = pwd
         self.config_path = config_path
         self.config_template_path = config_template_path
@@ -39,6 +36,11 @@ class ApplicationSetup:
 
         # Load essential settings
         self.load_core_settings()
+
+        # Exit script if dry run is not enabled and root permissions are missing 
+        if not self.dry_run and os.geteuid() != 0:
+            logging.error(f"This script must be run as root. Use 'sudo python3 {__file__}'")
+            sys.exit(1)
 
     def handle_auto_update(self):
         """Checks if auto-update is enabled and runs it if necessary."""

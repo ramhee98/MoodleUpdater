@@ -175,7 +175,7 @@ def main():
     start_time = time.time()
     logging.info(f"Started at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    service_manager = ServiceManager(dry_run=False)  # Create an instance
+    service_manager = ServiceManager(dry_run)  # Create an instance
 
     if restart_webserver_flag:
         service_manager.restart_webserver("stop")

@@ -23,11 +23,7 @@ class ServiceManager:
             return
 
         logging.info(f"Attempting to {action} the {webserver} service.")
-
-        if self.dry_run:
-            logging.info(f"[Dry Run] Would run: systemctl {action} {webserver}")
-        else:
-            self._run_systemctl(action, webserver)
+        self._run_systemctl(action, webserver)
 
     def restart_database(self, action):
         """Start / stop the installed database service, based on availability."""
@@ -50,16 +46,15 @@ class ServiceManager:
         for db_service in installed_db_services:
             service_name = database_services[db_service]
             logging.info(f"Attempting to {action} the {service_name} service.")
-
-            if self.dry_run:
-                logging.info(f"[Dry Run] Would run: systemctl {action} {service_name}")
-            else:
-                self._run_systemctl(action, service_name)
+            self._run_systemctl(action, service_name)
 
     def _run_systemctl(self, action, service_name):
         """Runs the systemctl command for service management."""
-        try:
-            subprocess.run(['systemctl', action, service_name], check=True)
-            logging.info(f"{service_name} service {action}ed successfully.")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Failed to {action} the {service_name} service: {e.stderr}")
+        if self.dry_run:
+            logging.info(f"[Dry Run] Would run: systemctl {action} {service_name}")
+        else:
+            try:
+                subprocess.run(['systemctl', action, service_name], check=True)
+                logging.info(f"{service_name} service {action}ed successfully.")
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Failed to {action} the {service_name} service: {e.stderr}")

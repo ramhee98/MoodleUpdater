@@ -20,7 +20,8 @@
 - **Automation**:
   - Multithreaded execution for combined tasks.
   - Prompts to confirm actions with optional default responses.
-  - Automatically restart Apache or Nginx after updates.
+  - Automatically restart Apache or Nginx after updates and Moodle CLI upgrades.
+  - Optionally perform a Moodle CLI upgrade via `admin/cli/upgrade.php` after updating the repository.
   - Optionally restart the database service before a database dump.
 
 - **User-Friendly**:
@@ -150,7 +151,13 @@ python3 moodle_updater.py
 4. **Multithreading**:
    - Directory backups, database dumps, and Git operations can run concurrently, saving time.
 
-5. **Post-Process**:
+5. **Moodle CLI Upgrade**:
+   - After updating Moodle, you can run the Moodle upgrade script (`admin/cli/upgrade.php`) automatically.
+   - The script asks for confirmation before proceeding.
+   - Any errors encountered during the CLI upgrade are logged.
+   - If the web server was stopped for the update, it will be restarted after the upgrade.
+
+6. **Post-Process**:
    - Optionally restart Apache or Nginx to apply changes.
 
 ### Key Prompts

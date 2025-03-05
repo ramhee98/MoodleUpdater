@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+import select
 import shutil
 import subprocess
 from modules.system_monitor import SystemMonitor
@@ -16,6 +17,7 @@ class MoodleBackupManager:
         self.runtime_backup = None
         self.runtime_dump = None
         self.runtime_clone = None
+        self.runtime_cliupgrade = None
 
     def dir_backup(self, full_backup):
         """Handle directory backups using rsync."""
@@ -164,3 +166,46 @@ class MoodleBackupManager:
         logging.info("Starting directory backup and git clone process.")
         self.dir_backup(full_backup)
         self.git_clone(config_php, repo, branch, sync_submodules)
+
+    def moodle_cli_upgrade(self):
+        """Upgrading Moodle instance via admin/cli/upgrade.php"""
+        start = time.time()
+        logging.info("Starting Moodle upgrade via CLI...")
+        moodle_upgrade_script = os.path.join(self.path, self.moodle, "admin/cli/upgrade.php")
+        if self.dry_run:
+            logging.info(f"[Dry Run] Would run: php {moodle_upgrade_script} --non-interactive")
+        else:
+            try:
+                process = subprocess.Popen(
+                    ['php', moodle_upgrade_script, '--non-interactive'],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+
+                # Process both stdout and stderr as they come in
+                while True:
+                    ready_to_read, _, _ = select.select([process.stdout, process.stderr], [], [])
+
+                    for stream in ready_to_read:
+                        line = stream.readline().strip()
+                        if not line:
+                            continue
+
+                        if stream is process.stdout:
+                            logging.info(line)
+                        elif stream is process.stderr:
+                            logging.warning(line)
+
+                    if process.poll() is not None:  # Check if process has finished
+                        break
+
+                process.wait()
+
+                if process.returncode != 0:
+                    logging.error(f"Moodle upgrade failed with exit code {process.returncode}")
+
+            except Exception as e:
+                logging.error(f"Unexpected error during Moodle upgrade: {e}")
+
+        logging.info("Finished Moodle upgrade via CLI")
+        self.runtime_cliupgrade = int(time.time() - start)
+        logging.info(f"Moodle CLI Upgrade completed in {self.runtime_cliupgrade} seconds.")

@@ -42,15 +42,17 @@ def main():
     dir_backup = ApplicationSetup.confirm("Start directory backup process?", "y")
     db_dump = ApplicationSetup.confirm("Start DB dump process?", "y")
     git_clone = ApplicationSetup.confirm("Start git clone process?", "y")
+    moodle_cli_upgrade = ApplicationSetup.confirm("Start moodle cli upgrade process afterwards?", "y")
 
     logging.info(SEPARATOR)
     logging.info(f"dirbackup: {dir_backup}")
     logging.info(f"dbdump: {db_dump}")
     logging.info(f"gitclone: {git_clone}")
+    logging.info(f"moodlecliupgrade: {moodle_cli_upgrade}")
     logging.info(SEPARATOR)
 
     # Abort if no tasks were selected
-    if not dir_backup and not db_dump and not git_clone:
+    if not dir_backup and not db_dump and not git_clone and not moodle_cli_upgrade:
         logging.warning("No tasks selected. Script aborted.")
         sys.exit(1)
 
@@ -237,10 +239,16 @@ def main():
     if restart_webserver_flag:
         service_manager.restart_webserver("start")
 
+    if moodle_cli_upgrade:
+        backup_manager.moodle_cli_upgrade()
+        if restart_webserver_flag:
+            service_manager.restart_webserver("restart")
+
     runtime = int(time.time() - start_time)  # Convert to integer seconds
     runtime_backup = backup_manager.runtime_backup
     runtime_dump = backup_manager.runtime_dump
     runtime_clone = backup_manager.runtime_clone
+    runtime_cliupgrade = backup_manager.runtime_cliupgrade
 
     # Log if any operation times were recorded
     if runtime_backup:
@@ -258,12 +266,17 @@ def main():
     else:
         runtime_clone = 0
 
+    if runtime_cliupgrade:
+        logging.info("Moodle CLI Upgrade time needed: %d seconds", runtime_clone)
+    else:
+        runtime_cliupgrade = 0
+
     # Log total runtime
     logging.info("Total execution time (excluding user input): %d seconds", runtime)
     if multithreading:
-        logging.info("Time saved with multithreading: %d seconds", runtime_backup + runtime_dump + runtime_clone - runtime)
+        logging.info("Time saved with multithreading: %d seconds", runtime_backup + runtime_dump + runtime_clone + runtime_cliupgrade - runtime)
 
-    logging.info("------------------------------------------------------------------------------------------")
+    logging.info(SEPARATOR)
     logging.info("Finished at %s", time.strftime("%Y-%m-%d %H:%M:%S"))
 
     if dry_run:

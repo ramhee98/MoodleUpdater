@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import shutil
+import signal
 from modules.config_manager import ConfigManager
 from modules.git_manager import GitManager
 from modules.moodle_version import MoodleVersionChecker
@@ -84,18 +85,46 @@ class ApplicationSetup:
             logging.info(SEPARATOR)
 
     @staticmethod
-    def confirm(question, default=''):
-        """Prompt the user for confirmation with optional default response and cancel functionality."""
+    def confirm(question, default='', timeout=None):
+        """
+        Prompt the user for confirmation with optional default response, cancel functionality, and timeout support.
+
+        Parameters:
+        - question (str): The confirmation prompt.
+        - default (str, optional): Default response if user just presses Enter (e.g., 'y' or 'n').
+        - timeout (int, optional): Number of seconds to wait before returning default.
+
+        Returns:
+        - True if user confirms (y)
+        - False if user declines (n)
+        - None if user cancels (c) or timeout occurs with no valid default.
+        """
         valid_responses = {'y': True, 'n': False, 'c': None}
         option = "Yes(y)/No(n)/Cancel(c)" + (f" Default={default}" if default else "")
 
-        while True:
-            user_input = input(f"{question} {option}: ").strip().lower()
+        if timeout:
+            signal.signal(signal.SIGALRM, lambda signum, frame: (_ for _ in ()).throw(TimeoutError))
+            signal.alarm(timeout)  # Start countdown
 
-            if user_input in valid_responses:
-                if user_input == 'c':  # Cancel case
-                    logging.warning("User canceled the operation.")
-                    exit(1)
-                return valid_responses[user_input]
-            elif default and user_input == '':
-                return valid_responses.get(default.lower(), False)
+        try:
+            while True:
+                user_input = input(f"{question} {option}: ").strip().lower()
+
+                if user_input in valid_responses:
+                    signal.alarm(0)  # Reset timeout
+                    if user_input == 'c':  # Cancel case
+                        logging.warning("User canceled the operation.")
+                        exit(1)
+                    return valid_responses[user_input]
+
+                elif default and user_input == '':
+                    signal.alarm(0)  # Reset timeout
+                    return valid_responses.get(default.lower(), False)
+
+        except TimeoutError:  # Catch built-in TimeoutError
+            logging.warning(f"User input timed out after {timeout} seconds.")
+            logging.info(f"Timeout reached! Using default response: {default or 'No response'}")
+            return valid_responses.get(default.lower(), None)
+
+        finally:
+            signal.alarm(0)  # Ensure timeout is reset after function exits

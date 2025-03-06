@@ -22,6 +22,7 @@
   - Prompts to confirm actions with optional default responses.
   - Automatically restart Apache or Nginx after updates and Moodle CLI upgrades.
   - Optionally perform a Moodle CLI upgrade via `admin/cli/upgrade.php` after updating the repository.
+  - Optionally enable Moodle Maintenance Mode during Moodle CLI upgrade.
   - Optionally restart the database service before a database dump.
 
 - **User-Friendly**:
@@ -154,6 +155,8 @@ python3 moodle_updater.py
 5. **Moodle CLI Upgrade**:
    - After updating Moodle, you can run the Moodle upgrade script (`admin/cli/upgrade.php`) automatically.
    - The script asks for confirmation before proceeding.
+   - You will be asked whether to enable Maintenance Mode before upgrading.
+   - If enabled, Maintenance Mode will be automatically disabled once the upgrade is complete.
    - Any errors encountered during the CLI upgrade are logged.
    - If the web server was stopped for the update, it will be restarted after the upgrade.
 

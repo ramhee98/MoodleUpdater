@@ -167,11 +167,15 @@ class MoodleBackupManager:
         self.dir_backup(full_backup)
         self.git_clone(config_php, repo, branch, sync_submodules)
 
-    def moodle_cli_upgrade(self):
+    def moodle_cli_upgrade(self, moodle_maintenance_mode_flag):
         """Upgrading Moodle instance via admin/cli/upgrade.php"""
         start = time.time()
         logging.info("Starting Moodle upgrade via CLI...")
         moodle_upgrade_script = os.path.join(self.path, self.moodle, "admin/cli/upgrade.php")
+        
+        if moodle_maintenance_mode_flag:
+            self.moodle_maintenance_mode(True)
+
         if self.dry_run:
             logging.info(f"[Dry Run] Would run: php {moodle_upgrade_script} --non-interactive")
         else:
@@ -205,7 +209,24 @@ class MoodleBackupManager:
 
             except Exception as e:
                 logging.error(f"Unexpected error during Moodle upgrade: {e}")
+        
+        if moodle_maintenance_mode_flag:
+            self.moodle_maintenance_mode(False)
 
         logging.info("Finished Moodle upgrade via CLI")
         self.runtime_cliupgrade = int(time.time() - start)
         logging.info(f"Moodle CLI Upgrade completed in {self.runtime_cliupgrade} seconds.")
+
+    def moodle_maintenance_mode(self, enable: bool):
+        """Enable or disable Moodle maintenance mode."""
+        mode = "enable" if enable else "disable"
+        command = f"php {os.path.join(self.path, self.moodle, 'admin/cli/maintenance.php')} --{mode}"
+
+        if self.dry_run:
+            logging.info(f"[Dry Run] Would run: {command}")
+        else:
+            try:
+                subprocess.run(command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                logging.info(f"Moodle maintenance mode {mode}d successfully.")
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Failed to {mode} maintenance mode: {e.stderr}")

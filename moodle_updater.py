@@ -71,6 +71,7 @@ def main():
 
     restart_webserver_flag = ApplicationSetup.confirm("Restart webserver automatically?", "y")
     restart_database_flag = False
+    moodle_maintenance_mode_flag = False
     verbose = ApplicationSetup.confirm("Do you want to enable verbose mode?", default='n')
 
     if dir_backup or git_clone:
@@ -170,6 +171,9 @@ def main():
 
         sync_submodules = ApplicationSetup.confirm("Do you want to sync and update all submodules?", "y")
 
+    if moodle_cli_upgrade:
+        moodle_maintenance_mode_flag = ApplicationSetup.confirm("Enable Moodle Maintenance Mode during Moodle CLI Upgrade?", "y")
+
     if not ApplicationSetup.confirm("Do you want to confirm the installation?"):
         logging.warning("User canceled the operation.")
         exit(1)
@@ -240,7 +244,7 @@ def main():
         service_manager.restart_webserver("start")
 
     if moodle_cli_upgrade:
-        backup_manager.moodle_cli_upgrade()
+        backup_manager.moodle_cli_upgrade(moodle_maintenance_mode_flag)
         if restart_webserver_flag:
             service_manager.restart_webserver("restart")
 

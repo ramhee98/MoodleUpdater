@@ -251,7 +251,6 @@ class MoodleBackupManager:
             )
 
             if "\n" in result.stdout.strip():
-                print("newline")
                 formatted_message = "checks.php returned:\n" + result.stdout.strip()
             else:
                 formatted_message = "checks.php returned: " + result.stdout.strip()

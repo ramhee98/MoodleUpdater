@@ -122,8 +122,8 @@ class ApplicationSetup:
                     return valid_responses.get(default.lower(), False)
 
         except TimeoutError:  # Catch built-in TimeoutError
-            logging.warning(f"User input timed out after {timeout} seconds.")
-            logging.info(f"Timeout reached! Using default response: {default or 'No response'}")
+            print("\n")
+            logging.warning(f"Timeout reached! Using default response: {default or 'No response'}")
             return valid_responses.get(default.lower(), None)
 
         finally:

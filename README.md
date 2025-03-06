@@ -21,7 +21,8 @@
   - Multithreaded execution for combined tasks.
   - Prompts to confirm actions with optional default responses.
   - Automatically restart Apache or Nginx after updates and Moodle CLI upgrades.
-  - Optionally perform a Moodle CLI upgrade via `admin/cli/upgrade.php` after updating the repository.
+  - Optionally perform a Moodle CLI upgrade via `admin/cli/upgrade.php`, now with pre-upgrade and post-upgrade system checks.
+  - The script runs `admin/cli/checks.php` before and after the upgrade to detect potential issues.
   - Optionally enable Moodle Maintenance Mode during Moodle CLI upgrade.
   - Optionally restart the database service before a database dump.
 

@@ -6,6 +6,8 @@ import shutil
 import subprocess
 from modules.system_monitor import SystemMonitor
 
+SEPARATOR = "-------------------------------------------------------------------------"
+
 class MoodleBackupManager:
     """Manages directory backups, database dumps, and Git clone operations for Moodle."""
 
@@ -168,18 +170,22 @@ class MoodleBackupManager:
         self.git_clone(config_php, repo, branch, sync_submodules)
 
     def moodle_cli_upgrade(self, moodle_maintenance_mode_flag):
-        """Upgrading Moodle instance via admin/cli/upgrade.php"""
+        """Upgrading Moodle instance via admin/cli/upgrade.php with pre/post system checks"""
         start = time.time()
         logging.info("Starting Moodle upgrade via CLI...")
         moodle_upgrade_script = os.path.join(self.path, self.moodle, "admin/cli/upgrade.php")
-        
-        if moodle_maintenance_mode_flag:
-            self.moodle_maintenance_mode(True)
 
         if self.dry_run:
             logging.info(f"[Dry Run] Would run: php {moodle_upgrade_script} --non-interactive")
+            logging.info(f"[Dry Run] Would run system checks using: php admin/cli/checks.php")
         else:
+            # Run pre-upgrade checks
+            self.run_moodle_check("before upgrade")
+
             try:
+                if moodle_maintenance_mode_flag:
+                    self.moodle_maintenance_mode(True)
+
                 process = subprocess.Popen(
                     ['php', moodle_upgrade_script, '--non-interactive'],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -188,30 +194,30 @@ class MoodleBackupManager:
                 # Process both stdout and stderr as they come in
                 while True:
                     ready_to_read, _, _ = select.select([process.stdout, process.stderr], [], [])
-
                     for stream in ready_to_read:
                         line = stream.readline().strip()
                         if not line:
                             continue
-
                         if stream is process.stdout:
                             logging.info(line)
                         elif stream is process.stderr:
                             logging.warning(line)
-
-                    if process.poll() is not None:  # Check if process has finished
+                    if process.poll() is not None:
                         break
 
                 process.wait()
+
+                if moodle_maintenance_mode_flag:
+                    self.moodle_maintenance_mode(False)
 
                 if process.returncode != 0:
                     logging.error(f"Moodle upgrade failed with exit code {process.returncode}")
 
             except Exception as e:
                 logging.error(f"Unexpected error during Moodle upgrade: {e}")
-        
-        if moodle_maintenance_mode_flag:
-            self.moodle_maintenance_mode(False)
+
+            # Run post-upgrade checks
+            self.run_moodle_check("after upgrade")
 
         logging.info("Finished Moodle upgrade via CLI")
         self.runtime_cliupgrade = int(time.time() - start)
@@ -230,3 +236,40 @@ class MoodleBackupManager:
                 logging.info(f"Moodle maintenance mode {mode}d successfully.")
             except subprocess.CalledProcessError as e:
                 logging.error(f"Failed to {mode} maintenance mode: {e.stderr}")
+
+    def run_moodle_check(self, phase):
+        """Run Moodle system check before or after upgrades, logging results with appropriate log levels."""
+        moodle_checks_script = os.path.join(self.path, self.moodle, "admin/cli/checks.php")
+        logging.info(f"Running Moodle system check ({phase})...")
+        logging.info(SEPARATOR)
+
+        try:
+            # Run the Moodle check command and capture output (even if it fails)
+            result = subprocess.run(
+                ['php', moodle_checks_script],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+
+            if "\n" in result.stdout.strip():
+                print("newline")
+                formatted_message = "checks.php returned:\n" + result.stdout.strip()
+            else:
+                formatted_message = "checks.php returned: " + result.stdout.strip()
+
+            if "CRITICAL" in formatted_message or "ERROR" in formatted_message:
+                logging.error(formatted_message)
+            elif "WARNING" in formatted_message:
+                logging.warning(formatted_message)
+            elif "OK" in formatted_message:
+                logging.info(formatted_message)
+            else:
+                logging.debug(formatted_message)
+
+            if result.returncode != 0:
+                logging.critical(f"Moodle system check ({phase}) failed with exit code {result.returncode}")
+
+        except Exception as e:
+            logging.critical(f"Unexpected error while running Moodle system check ({phase}): {str(e)}")
+
+        logging.info(SEPARATOR)
+        logging.info(f"Finished Moodle system check")

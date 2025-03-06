@@ -4,6 +4,8 @@ import logging
 import select
 import shutil
 import subprocess
+import sys
+from modules.application_setup import ApplicationSetup
 from modules.system_monitor import SystemMonitor
 
 SEPARATOR = "-------------------------------------------------------------------------"
@@ -180,7 +182,7 @@ class MoodleBackupManager:
             logging.info(f"[Dry Run] Would run system checks using: php admin/cli/checks.php")
         else:
             # Run pre-upgrade checks
-            self.run_moodle_check("before upgrade")
+            self.run_moodle_check(before_upgrade=True)
 
             try:
                 if moodle_maintenance_mode_flag:
@@ -217,7 +219,7 @@ class MoodleBackupManager:
                 logging.error(f"Unexpected error during Moodle upgrade: {e}")
 
             # Run post-upgrade checks
-            self.run_moodle_check("after upgrade")
+            self.run_moodle_check(before_upgrade=False)
 
         logging.info("Finished Moodle upgrade via CLI")
         self.runtime_cliupgrade = int(time.time() - start)
@@ -237,9 +239,16 @@ class MoodleBackupManager:
             except subprocess.CalledProcessError as e:
                 logging.error(f"Failed to {mode} maintenance mode: {e.stderr}")
 
-    def run_moodle_check(self, phase):
+    def run_moodle_check(self, before_upgrade=True):
         """Run Moodle system check before or after upgrades, logging results with appropriate log levels."""
         moodle_checks_script = os.path.join(self.path, self.moodle, "admin/cli/checks.php")
+        error = False
+        if before_upgrade:
+            phase = "before upgrade"
+            auto_continue_choice = "n"
+        else:
+            phase = "after upgrade"
+            auto_continue_choice = "y"
         logging.info(f"Running Moodle system check ({phase})...")
         logging.info(SEPARATOR)
 
@@ -257,6 +266,7 @@ class MoodleBackupManager:
 
             if "CRITICAL" in formatted_message or "ERROR" in formatted_message:
                 logging.error(formatted_message)
+                error = True
             elif "WARNING" in formatted_message:
                 logging.warning(formatted_message)
             elif "OK" in formatted_message:
@@ -269,6 +279,14 @@ class MoodleBackupManager:
 
         except Exception as e:
             logging.critical(f"Unexpected error while running Moodle system check ({phase}): {str(e)}")
+            error = True
+        
+        if error:
+            timeout = 30
+            logging.info(f"Pausing for manual intervention... (script will continue automatically in {timeout}s)")
+            if not ApplicationSetup.confirm(f"Errors detected in Moodle check. Do you want to continue?", auto_continue_choice, timeout):
+                logging.critical(f"Execution stopped due to errors in Moodle system check ({phase}).")
+                sys.exit(1)
 
         logging.info(SEPARATOR)
         logging.info(f"Finished Moodle system check")

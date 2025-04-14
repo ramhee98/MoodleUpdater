@@ -105,7 +105,7 @@
    dry_run = False
    auto_update_script = True
    repo = https://github.com/BLC-FHGR/moodle
-   branch = MOODLE_404_STABLE
+   branch = MOODLE_500_STABLE
    path = /var/www/moodle
    moodle = moodle
    folder_backup_path = /var/www/moodle
@@ -168,7 +168,7 @@ python3 moodle_updater.py
 
 - **Path**: Confirm the default Moodle installation path or provide a custom path.
 - **Database Credentials**: Enter the Moodle database name, user, and password when prompted.
-- **Git Repository**: By default, clones the Moodle repository from GitHub with the branch `MOODLE_404_STABLE`.
+- **Git Repository**: By default, clones the Moodle repository from GitHub with the branch `MOODLE_500_STABLE`.
 
 ### Logs and Outputs
 

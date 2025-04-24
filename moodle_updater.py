@@ -37,6 +37,8 @@ def main():
     full_path = setup.full_path
     configphppath = setup.configphppath
     multithreading = False
+    chown_user = config.get('settings', 'chown_user', fallback="www-data")
+    chown_group = config.get('settings', 'chown_group', fallback="www-data")
 
     # Get user confirmation for operations
     dir_backup = ApplicationSetup.confirm("Start directory backup process?", "y")
@@ -196,7 +198,7 @@ def main():
 
         t_backup_clone = threading.Thread(
             target=backup_manager.dir_backup_and_git_clone,
-            args=(configphp, full_backup, repo, branch, sync_submodules,)
+            args=(configphp, full_backup, repo, branch, sync_submodules, chown_user, chown_group,)
         )
         t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
@@ -220,7 +222,7 @@ def main():
         multithreading = True
 
         t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
-        t_clone = threading.Thread(target=backup_manager.git_clone, args=(configphp, repo, branch, sync_submodules,))
+        t_clone = threading.Thread(target=backup_manager.git_clone, args=(configphp, repo, branch, sync_submodules, chown_user, chown_group,))
 
         logging.info("Starting database dump and git clone (multithreaded).")
         t_dump.start()
@@ -238,7 +240,7 @@ def main():
 
         if git_clone:
             logging.info("Starting git clone")
-            backup_manager.git_clone(configphp, repo, branch, sync_submodules)
+            backup_manager.git_clone(configphp, repo, branch, sync_submodules, chown_user, chown_group)
 
     if restart_webserver_flag:
         service_manager.restart_webserver("start")

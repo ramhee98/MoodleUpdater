@@ -108,7 +108,7 @@ class MoodleBackupManager:
 
         self.runtime_dump = int(time.time() - start)
 
-    def git_clone(self, config_php, repository, branch, sync_submodules):
+    def git_clone(self, config_php, repository, branch, sync_submodules, chown_user, chown_group):
         """Clone a git repository."""
         start = time.time()
         clone_path = os.path.join(self.path, self.moodle)
@@ -157,7 +157,7 @@ class MoodleBackupManager:
             with open(os.path.join(clone_path, 'config.php'), 'w') as config_file:
                 config_file.write(config_php)
             try:
-                subprocess.run(['chown', 'www-data:www-data', clone_path, '-R'], check=True)
+                subprocess.run(['chown', f'{chown_user}:{chown_group}', clone_path, '-R'], check=True)
             except subprocess.CalledProcessError as e:
                 logging.error(f"Setting folder ownership failed: {e.stderr}")
 

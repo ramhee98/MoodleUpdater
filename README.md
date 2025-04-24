@@ -26,6 +26,10 @@
   - Optionally enable Moodle Maintenance Mode during Moodle CLI upgrade.
   - Optionally restart the database service before a database dump.
 
+- **User and Group Ownership**:
+  - Optionally set the user and group ownership for Moodle files and directories after cloning or updating Moodle.
+  - Configure the ownership settings through the `chown_user` and `chown_group` options in `config.ini` to ensure proper file permissions (e.g., `www-data`).
+
 - **User-Friendly**:
   - Guided prompts for paths, database credentials, and other configurations.
   - Default values and skip options for most steps.
@@ -83,6 +87,8 @@
    - **branch**: Branch of the Moodle repository to checkout.
    - **path**: Path to the directory where Moodle is installed.
    - **moodle**: Name of the Moodle folder within the specified path.
+   - **chown_user**: Specifies the user to set as the owner for Moodle files and directories, useful for setting file ownership after cloning or updating Moodle (e.g., www-data).
+   - **chown_group**: Specifies the group to set as the owner for Moodle files and directories, ensuring correct group ownership and permissions (e.g., www-data).
    - **folder_backup_path**: Custom directory where backup files will be stored. If left blank, the current working directory will be used.
    - **db_dump_path**: Custom directory where DB dumps will be stored. If left blank, the current working directory will be used.
    - **read_db_from_config** Read database name, username and password from `config.php`, default is True
@@ -108,6 +114,8 @@
    branch = MOODLE_500_STABLE
    path = /var/www/moodle
    moodle = moodle
+   chown_user = www-data
+   chown_group = www-data
    folder_backup_path = /var/www/moodle
    db_dump_path = /var/www/moodle/db_dump
    [database]

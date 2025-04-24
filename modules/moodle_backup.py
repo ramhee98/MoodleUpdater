@@ -282,7 +282,7 @@ class MoodleBackupManager:
             error = True
         
         if error:
-            timeout = 30
+            timeout = 60
             logging.info(f"Pausing for manual intervention... (script will continue automatically in {timeout}s)")
             if not ApplicationSetup.confirm(f"Errors detected in Moodle check. Do you want to continue?", auto_continue_choice, timeout):
                 logging.critical(f"Execution stopped due to errors in Moodle system check ({phase}).")

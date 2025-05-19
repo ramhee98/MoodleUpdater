@@ -165,11 +165,11 @@ class MoodleBackupManager:
         self.runtime_clone = int(time.time() - start)
         logging.info(f"Git clone completed in {self.runtime_clone} seconds.")
 
-    def dir_backup_and_git_clone(self, config_php, full_backup, repo, branch, sync_submodules):
+    def dir_backup_and_git_clone(self, config_php, full_backup, repo, branch, sync_submodules, chown_user, chown_group):
         """Perform directory backup followed by git clone."""
         logging.info("Starting directory backup and git clone process.")
         self.dir_backup(full_backup)
-        self.git_clone(config_php, repo, branch, sync_submodules)
+        self.git_clone(config_php, repo, branch, sync_submodules, chown_user, chown_group)
 
     def moodle_cli_upgrade(self, moodle_maintenance_mode_flag):
         """Upgrading Moodle instance via admin/cli/upgrade.php with pre/post system checks"""

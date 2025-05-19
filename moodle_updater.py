@@ -175,6 +175,7 @@ def main():
 
     if moodle_cli_upgrade:
         moodle_maintenance_mode_flag = ApplicationSetup.confirm("Enable Moodle Maintenance Mode during Moodle CLI Upgrade?", "y")
+        force_continue = ApplicationSetup.confirm("Auto-continue even if Moodle system check reports errors?", "n")
 
     if not ApplicationSetup.confirm("Do you want to confirm the installation?"):
         logging.warning("User canceled the operation.")
@@ -246,7 +247,7 @@ def main():
         service_manager.restart_webserver("start")
 
     if moodle_cli_upgrade:
-        backup_manager.moodle_cli_upgrade(moodle_maintenance_mode_flag)
+        backup_manager.moodle_cli_upgrade(moodle_maintenance_mode_flag, force_continue)
         if restart_webserver_flag:
             service_manager.restart_webserver("restart")
 

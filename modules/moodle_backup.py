@@ -171,7 +171,7 @@ class MoodleBackupManager:
         self.dir_backup(full_backup)
         self.git_clone(config_php, repo, branch, sync_submodules, chown_user, chown_group)
 
-    def moodle_cli_upgrade(self, moodle_maintenance_mode_flag):
+    def moodle_cli_upgrade(self, moodle_maintenance_mode_flag, force_continue):
         """Upgrading Moodle instance via admin/cli/upgrade.php with pre/post system checks"""
         start = time.time()
         logging.info("Starting Moodle upgrade via CLI...")
@@ -182,7 +182,7 @@ class MoodleBackupManager:
             logging.info(f"[Dry Run] Would run system checks using: php admin/cli/checks.php")
         else:
             # Run pre-upgrade checks
-            self.run_moodle_check(before_upgrade=True)
+            self.run_moodle_check(before_upgrade=True, force_continue=force_continue)
 
             try:
                 if moodle_maintenance_mode_flag:
@@ -219,7 +219,7 @@ class MoodleBackupManager:
                 logging.error(f"Unexpected error during Moodle upgrade: {e}")
 
             # Run post-upgrade checks
-            self.run_moodle_check(before_upgrade=False)
+            self.run_moodle_check(before_upgrade=False, force_continue=force_continue)
 
         logging.info("Finished Moodle upgrade via CLI")
         self.runtime_cliupgrade = int(time.time() - start)
@@ -239,7 +239,7 @@ class MoodleBackupManager:
             except subprocess.CalledProcessError as e:
                 logging.error(f"Failed to {mode} maintenance mode: {e.stderr}")
 
-    def run_moodle_check(self, before_upgrade=True):
+    def run_moodle_check(self, before_upgrade=True, force_continue=False):
         """Run Moodle system check before or after upgrades, logging results with appropriate log levels."""
         moodle_checks_script = os.path.join(self.path, self.moodle, "admin/cli/checks.php")
         error = False
@@ -280,13 +280,14 @@ class MoodleBackupManager:
         except Exception as e:
             logging.critical(f"Unexpected error while running Moodle system check ({phase}): {str(e)}")
             error = True
-        
+
         if error:
             timeout = 60
-            logging.info(f"Pausing for manual intervention... (script will continue automatically in {timeout}s)")
-            if not ApplicationSetup.confirm(f"Errors detected in Moodle check. Do you want to continue?", auto_continue_choice, timeout):
-                logging.critical(f"Execution stopped due to errors in Moodle system check ({phase}).")
-                sys.exit(1)
+            if not force_continue:
+                logging.info(f"Pausing for manual intervention... (script will continue automatically in {timeout}s)")
+                if not ApplicationSetup.confirm(f"Errors detected in Moodle check. Do you want to continue?", auto_continue_choice, timeout):
+                    logging.critical(f"Execution stopped due to errors in Moodle system check ({phase}).")
+                    sys.exit(1)
 
         logging.info(SEPARATOR)
         logging.info(f"Finished Moodle system check")

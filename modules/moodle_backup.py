@@ -83,7 +83,7 @@ class MoodleBackupManager:
         monitor = SystemMonitor()
 
         # Start monitoring during database dump
-        monitor.start_monitoring(dump_file)
+        monitor.start_monitoring(dump_file, dbname, dbuser, dbpass)
 
         try:
             if self.dry_run:

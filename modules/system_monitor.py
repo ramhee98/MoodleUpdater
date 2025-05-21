@@ -2,6 +2,7 @@ import os
 import logging
 import time
 import threading
+import subprocess
 
 class SystemMonitor:
     """Monitors system resource usage and database dump progress."""
@@ -9,7 +10,42 @@ class SystemMonitor:
     def __init__(self):
         self.stop_event = threading.Event()
 
-    def monitor_dump_progress(self, dump_file, check_interval=5, log_interval=60, stagnation_threshold=60):
+    def get_database_size_mb(self, database, user, password):
+        # SQL query to get database size
+        query = """
+        SELECT
+            table_schema AS `Database`,
+            ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS `Size (MB)`
+        FROM
+            information_schema.tables
+        WHERE
+            table_schema = '{}'
+        GROUP BY
+            table_schema;
+        """.format(database)
+
+        cmd = [
+            'mysql',
+            '-u', user,
+            f'-p{password}',
+            '-N',   # Skip column names in output
+            '-e', query,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            output = result.stdout.strip()
+            if output:
+                _, size_mb = output.split('\t')
+                return float(size_mb)
+            else:
+                return 1
+        else:
+            logging.error(f"Error: {result.stderr}")
+            return 1
+
+    def monitor_dump_progress(self, dump_file, database, user, password, check_interval=5, log_interval=60, stagnation_threshold=60):
         """
         Monitors the size of the dump file and logs its progress periodically.
         
@@ -19,12 +55,14 @@ class SystemMonitor:
         :param log_interval: Minimum time in seconds between logs.
         :param stagnation_threshold: Time in seconds before logging a stagnation warning.
         """
-        logging.info(f"Monitoring database dump progress: {dump_file}")
-
         last_size = 0
         stagnation_time = 0
         last_log_time = 0
-
+        start_time = time.time()
+        approximate_db_to_dump_ratio = 0.583
+        estimated_total_size = self.get_database_size_mb(database, user, password) * approximate_db_to_dump_ratio
+        logging.info(f"Monitoring database dump progress: {dump_file} | Estimated size: {estimated_total_size / 1024:.2f} GB")
+        
         while not self.stop_event.is_set():
             if os.path.exists(dump_file):
                 current_size = os.path.getsize(dump_file)
@@ -39,12 +77,15 @@ class SystemMonitor:
                     stagnation_time = 0
                     if now - last_log_time >= log_interval:
                         size_mb = current_size / (1024 * 1024)
+                        elapsed_time = time.time() - start_time
+                        speed = size_mb / elapsed_time  # bytes per second
+                        remaining_time_sec = (estimated_total_size - size_mb) / speed if speed > 0 else float('inf')
+                        percent = (size_mb / estimated_total_size) * 100
                         if size_mb >= 1024:
-                            logging.info(f"Database dump progress: {size_mb / 1024:.2f} GB")
+                            logging.info(f"Database dump progress: {percent:.2f}% | {size_mb / 1024:.2f} GB | Elapsed: {elapsed_time:.1f}s | Estimated remaining: {remaining_time_sec:.1f}s")
                         else:
-                            logging.info(f"Database dump progress: {size_mb:.2f} MB")
+                            logging.info(f"Database dump progress: {percent:.2f}% | {size_mb:.2f} MB | Elapsed: {elapsed_time:.1f}s | Estimated remaining: {remaining_time_sec:.1f}s")
                         last_log_time = now
-
                 last_size = current_size
 
             time.sleep(check_interval)
@@ -130,14 +171,14 @@ class SystemMonitor:
 
         logging.info("Memory monitoring stopped.")
 
-    def start_monitoring(self, dump_file):
+    def start_monitoring(self, dump_file, dbname, dbuser, dbpass):
         """Starts monitoring memory and optionally dump progress in separate threads."""
         logging.info("Starting system monitoring...")
         
         self.memory_thread = threading.Thread(target=self.monitor_memory_usage)
         self.memory_thread.start()
 
-        self.dump_thread = threading.Thread(target=self.monitor_dump_progress, args=(dump_file,))
+        self.dump_thread = threading.Thread(target=self.monitor_dump_progress, args=(dump_file, dbname, dbuser, dbpass,))
         self.dump_thread.start()
 
     def stop_monitoring(self):

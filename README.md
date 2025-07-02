@@ -82,7 +82,7 @@
 
    The `config.ini` file contains the following settings:
    - **dry_run**: Enable dry run mode to simulate operations without making any changes.
-   - **auto_update_script**: Automatically check and pull updates for MoodleUpdater from the Git repository at the start. Default is True.
+   - **auto_update_script**: Automatically check and pull updates for MoodleUpdater from the Git repository at the start. Default is False.
    - **repo**: URL of the Moodle repository to clone.
    - **branch**: Branch of the Moodle repository to checkout.
    - **path**: Path to the directory where Moodle is installed.

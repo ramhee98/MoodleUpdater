@@ -40,11 +40,60 @@ def main():
     chown_user = config.get('settings', 'chown_user', fallback="www-data")
     chown_group = config.get('settings', 'chown_group', fallback="www-data")
 
+    # Check if --help is in the arguments
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print("Usage: python3 moodle_updater.py [options]")
+        print("Options:")
+        print("  --non-interactive         Run in non-interactive mode (default: False)")
+        print("  --directory-backup        Start directory backup process (default: True unless non-interactive is set then default: False)")
+        print("  --db-dump                 Start DB dump process (default: True unless non-interactive is set then default: False)")
+        print("  --git-clone               Start git clone process (default: True unless non-interactive is set then default: False)")
+        print("  --moodle-cli-upgrade      Start Moodle CLI upgrade process afterwards (default: True unless non-interactive is set then default: False)")
+        print("  --enable-maintenance-mode Enable Moodle Maintenance Mode during CLI Upgrade (default: True unless non-interactive is set then default: False)")
+        print("  --force-continue          Auto-continue even if system check reports errors (default: False)")
+        print("  --restart-webserver       Restart webserver automatically (default: True unless non-interactive is set then default: False)")
+        print("  --restart-database        Restart database before dump (default: False)")
+        print("  --verbose                 Enable verbose mode (default: False)")
+        print("  --full-backup             Backup entire folder (containing moodle, moodledata, and data) (default: False)")
+        print("  --sync-submodules-off     Disable syncing and updating of all submodules (default: False)")
+        print("  --dry-run                 Run in dry run mode (default: False)")
+        print("  --help, -h                Show this help message")
+        sys.exit(0)
+
+    non_interactive = False
+    # Check for non-interactive mode
+    if "--non-interactive" in sys.argv:
+        non_interactive = True
+
     # Get user confirmation for operations
-    dir_backup = ApplicationSetup.confirm("Start directory backup process?", "y")
-    db_dump = ApplicationSetup.confirm("Start DB dump process?", "y")
-    git_clone = ApplicationSetup.confirm("Start git clone process?", "y")
-    moodle_cli_upgrade = ApplicationSetup.confirm("Start moodle cli upgrade process afterwards?", "y")
+    # alternatively to the confirm action, command line arguments can be used
+    if "--directory-backup" in sys.argv:
+        dir_backup = True
+    elif not non_interactive:
+        dir_backup = ApplicationSetup.confirm("Start directory backup process?", "y")
+    else:
+        dir_backup = False
+
+    if "--db-dump" in sys.argv:
+        db_dump = True
+    elif not non_interactive:
+        db_dump = ApplicationSetup.confirm("Start DB dump process?", "y")
+    else:
+        db_dump = False
+    
+    if "--git-clone" in sys.argv:
+        git_clone = True
+    elif not non_interactive:
+        git_clone = ApplicationSetup.confirm("Start git clone process?", "y")
+    else:
+        git_clone = False
+    
+    if "--moodle-cli-upgrade" in sys.argv:
+        moodle_cli_upgrade = True
+    elif not non_interactive:
+        moodle_cli_upgrade = ApplicationSetup.confirm("Start moodle cli upgrade process afterwards?", "y")
+    else:
+        moodle_cli_upgrade = False
 
     logging.info(SEPARATOR)
     logging.info(f"dirbackup: {dir_backup}")
@@ -71,20 +120,37 @@ def main():
         dry_run=dry_run
     )
 
-    restart_webserver_flag = ApplicationSetup.confirm("Restart webserver automatically?", "y")
+    if "--restart-webserver" in sys.argv:
+        restart_webserver_flag = True
+    elif not non_interactive:
+        restart_webserver_flag = ApplicationSetup.confirm("Restart webserver automatically?", "y")
+    else:
+        restart_webserver_flag = False
+
     restart_database_flag = False
     moodle_maintenance_mode_flag = False
-    verbose = ApplicationSetup.confirm("Do you want to enable verbose mode?", default='n')
+
+    if "--verbose" in sys.argv:
+        verbose = True
+    elif not non_interactive:
+        verbose = ApplicationSetup.confirm("Do you want to enable verbose mode?", default='n')
+    else:
+        verbose = False
 
     if dir_backup or git_clone:
         logging.info("Preparing Moodle directory path.")
-        if not ApplicationSetup.confirm(f"Is this the correct Moodle directory? {path}", "y"):
+        if not non_interactive and not ApplicationSetup.confirm(f"Is this the correct Moodle directory? {path}", "y"):
             path = input("Please enter a path: ").rstrip("/")
             full_path = os.path.join(path, moodle)
 
     # Directory backup process
     if dir_backup:
-        full_backup = ApplicationSetup.confirm("Backup entire folder (containing moodle, moodledata, and data)?", "n")
+        if "--full-backup" in sys.argv:
+            full_backup = True
+        elif not non_interactive:
+            full_backup = ApplicationSetup.confirm("Backup entire folder (containing moodle, moodledata, and data)?", "n")
+        else:
+            full_backup = False
 
     # Database dump process
     if db_dump:
@@ -104,8 +170,13 @@ def main():
             dbname = cfg.get('dbname')
             dbuser = cfg.get('dbuser')
             dbpass = cfg.get('dbpass')
-        
-        restart_database_flag = ApplicationSetup.confirm("Restart database before dump?", "n")
+      
+        if "--restart-database" in sys.argv:
+            restart_database_flag = True
+        elif not non_interactive:
+            restart_database_flag = ApplicationSetup.confirm("Restart database before dump?", "n")
+        else:
+            restart_database_flag = False
 
         if dry_run:
             logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}")
@@ -157,7 +228,7 @@ def main():
             except Exception as e:
                 logging.error(f"Error parsing Moodle versions: local='{local_release}', remote='{remote_release}'. Exception: {e}")
 
-        if not ApplicationSetup.confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
+        if not non_interactive and not ApplicationSetup.confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
             customconfigphppath = input("Please enter a config.php path [press enter to skip]: ")
             if customconfigphppath:
                 with open(customconfigphppath, 'r') as file:
@@ -168,16 +239,32 @@ def main():
             with open(configphppath, 'r') as file:
                 configphp = file.read()
 
-        if not ApplicationSetup.confirm(f"Do you want to git checkout {branch}?", "y"):
+        if not non_interactive and not ApplicationSetup.confirm(f"Do you want to git checkout {branch}?", "y"):
             branch = input("Please enter custom branch: ")
 
-        sync_submodules = ApplicationSetup.confirm("Do you want to sync and update all submodules?", "y")
+        if "--sync-submodules-off" in sys.argv:
+            sync_submodules = False
+        elif not non_interactive:
+            sync_submodules = ApplicationSetup.confirm("Do you want to sync and update all submodules?", "y")
+        else:
+            sync_submodules = True
 
     if moodle_cli_upgrade:
-        moodle_maintenance_mode_flag = ApplicationSetup.confirm("Enable Moodle Maintenance Mode during Moodle CLI Upgrade?", "y")
-        force_continue = ApplicationSetup.confirm("Auto-continue even if Moodle system check reports errors?", "n")
+        if "--enable-maintenance-mode" in sys.argv:
+            moodle_maintenance_mode_flag = True
+        elif not non_interactive:
+            moodle_maintenance_mode_flag = ApplicationSetup.confirm("Enable Moodle Maintenance Mode during Moodle CLI Upgrade?", "y")
+        else:
+            moodle_maintenance_mode_flag = False
 
-    if not ApplicationSetup.confirm("Do you want to confirm the installation?"):
+        if "--force-continue" in sys.argv:
+            force_continue = True
+        elif not non_interactive:
+            force_continue = ApplicationSetup.confirm("Auto-continue even if Moodle system check reports errors?", "n")
+        else:
+            force_continue = False
+
+    if not non_interactive and not ApplicationSetup.confirm("Do you want to confirm the installation?"):
         logging.warning("User canceled the operation.")
         exit(1)
     # Start operations

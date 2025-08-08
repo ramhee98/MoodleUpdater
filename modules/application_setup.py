@@ -17,7 +17,7 @@ class ApplicationSetup:
         self.pwd = pwd
         self.config_path = config_path
         self.config_template_path = config_template_path
-        self.config_manager = ConfigManager(self.config_path)
+        self.config_manager = ConfigManager(self.config_path, pwd)
         
         # Load configuration
         self.config = self.config_manager.config
@@ -29,7 +29,7 @@ class ApplicationSetup:
         self.handle_auto_update()  # 🔹 This may modify config.ini
 
         # Ensure config is reloaded if changed
-        self.config_manager = ConfigManager(self.config_path)  
+        self.config_manager = ConfigManager(self.config_path, pwd)  
         self.config = self.config_manager.config  
 
         # Ensure config file exists

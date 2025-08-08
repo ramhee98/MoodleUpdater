@@ -1,12 +1,14 @@
 import configparser
 import logging
+import os
 import re
 from logging.handlers import RotatingFileHandler
 
 class ConfigManager:
     """Manages configuration loading and logging setup."""
-    def __init__(self, config_path):
+    def __init__(self, config_path, script_dir=None):
         self.config_path = config_path
+        self.script_dir = script_dir or os.path.dirname(os.path.abspath(config_path))
         self.config = self.load_config()
 
     def load_config(self):
@@ -23,6 +25,10 @@ class ConfigManager:
         log_file_path = self.config.get("logging", "log_file_path", fallback="moodle_updater.log")
         log_level = self.config.get("logging", "log_level", fallback="INFO").upper()
         numeric_level = getattr(logging, log_level, logging.INFO)
+
+        # Ensure log file path is absolute and relative to script directory
+        if not os.path.isabs(log_file_path):
+            log_file_path = os.path.join(self.script_dir, log_file_path)
 
         handlers = []
         if log_to_console:

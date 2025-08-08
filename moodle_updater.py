@@ -58,7 +58,7 @@ def main():
         print("  --restart-webserver       Restart webserver automatically (default: True unless non-interactive is set then default: False)")
         print("  --restart-database        Restart database before dump (default: False)")
         print("  --verbose                 Enable verbose mode (default: False)")
-        print("  --full-backup             Backup entire folder (containing moodle, moodledata, and data) (default: False)")
+        print("  --full-backup             Backup entire folder (containing moodle, moodledata, and data) (default: False) (used only if --directory-backup is set)")
         print("  --sync-submodules-off     Disable syncing and updating of all submodules (default: False)")
         print("  --dry-run                 Run in dry run mode (default: False)")
         print("  --help, -h                Show this help message")

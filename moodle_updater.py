@@ -40,6 +40,10 @@ def main():
     chown_user = config.get('settings', 'chown_user', fallback="www-data")
     chown_group = config.get('settings', 'chown_group', fallback="www-data")
 
+    if "--dry-run" in sys.argv:
+        dry_run = True
+        logging.info("Running in dry run mode. No changes will be made.")
+
     # Check if --help is in the arguments
     if "--help" in sys.argv or "-h" in sys.argv:
         print("Usage: python3 moodle_updater.py [options]")

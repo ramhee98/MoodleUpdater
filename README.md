@@ -51,6 +51,16 @@
   - Supports log rotation and adjustable logging levels for better debugging and monitoring.
   - The script measures and logs the execution time for key operations—directory backup, database dump, and Git clone. It also records the total runtime and calculates the time saved through multithreading when multiple tasks run concurrently. These detailed statistics provide valuable insights into the performance and efficiency of the update process.
 
+- **Modular Architecture**:
+  - Built with a modular design using separate components for different functionalities:
+    - `application_setup.py` - Handles initial configuration and setup
+    - `config_manager.py` - Manages configuration file operations
+    - `git_manager.py` - Handles all Git-related operations
+    - `moodle_backup.py` - Manages backup operations
+    - `moodle_version.py` - Version checking and comparison
+    - `service_manager.py` - Web server and database service management
+    - `system_monitor.py` - System resource monitoring during operations
+
 ## Requirements
 
 - **Operating System**: Linux-based (e.g., Ubuntu)
@@ -94,6 +104,7 @@
    - **read_db_from_config** Read database name, username and password from `config.php`, default is True
    - **db_name**: Name of the Moodle database, ignored if read_db_from_config is True.
    - **db_user**: Database username used for DB dump, ignored if read_db_from_config is True.
+   - **Note**: When `read_db_from_config` is set to False, the script will use the credentials specified in `config.ini` and prompt for the database password during execution.
    - **`log_to_console`**: Enable or disable logging to the console.
    - **`log_to_file`**: Enable or disable logging to a file.
    - **`log_file_path`**: Specify the file path where logs should be saved (only if `log_to_file` is enabled).
@@ -141,6 +152,50 @@ Run the script from the terminal:
 python3 moodle_updater.py
 ```
 
+### Command-Line Options
+
+The script supports various command-line arguments to control its behavior:
+
+```bash
+python3 moodle_updater.py [options]
+```
+
+**Available Options:**
+
+- `--help`, `-h` - Show help message and exit
+- `--non-interactive` - Run in non-interactive mode (default: False)
+- `--directory-backup` - Start directory backup process (default: True unless non-interactive is set, then default: False)
+- `--db-dump` - Start database dump process (default: True unless non-interactive is set, then default: False)
+- `--git-clone` - Start git clone process (default: True unless non-interactive is set, then default: False)
+- `--moodle-cli-upgrade` - Start Moodle CLI upgrade process afterwards (default: True unless non-interactive is set, then default: False)
+- `--enable-maintenance-mode` - Enable Moodle Maintenance Mode during CLI upgrade (default: True unless non-interactive is set, then default: False)
+- `--force-continue` - Auto-continue even if system check reports errors (default: False)
+- `--restart-webserver` - Restart webserver automatically (default: True unless non-interactive is set, then default: False)
+- `--restart-database` - Restart database before dump (default: False)
+- `--verbose` - Enable verbose mode (default: False)
+- `--full-backup` - Backup entire folder (containing moodle, moodledata, and data) (default: False) (used only if --directory-backup is set)
+- `--sync-submodules-off` - Disable syncing and updating of all submodules (default: False)
+- `--dry-run` - Run in dry run mode without making any changes (default: False)
+
+**Example Commands:**
+
+```bash
+# Run with all default prompts
+python3 moodle_updater.py
+
+# Non-interactive mode with specific operations
+python3 moodle_updater.py --non-interactive --directory-backup --db-dump --git-clone --moodle-cli-upgrade
+
+# Dry run to test without making changes
+python3 moodle_updater.py --dry-run
+
+# Full backup with verbose output
+python3 moodle_updater.py --directory-backup --full-backup --verbose
+
+# Update with CLI upgrade and maintenance mode
+python3 moodle_updater.py --git-clone --moodle-cli-upgrade --enable-maintenance-mode
+```
+
 ### Example Workflow
 
 1. **Directory Backup**:
@@ -182,6 +237,21 @@ python3 moodle_updater.py
 
 - Backups and dumps are timestamped for easy tracking.
 - All errors are reported to the terminal, including failed database connections or file operations.
+
+### Non-Interactive Mode
+
+For automated deployments and scripting, MoodleUpdater supports a non-interactive mode:
+
+- Use `--non-interactive` to run without user prompts
+- In non-interactive mode, all operations default to `False` unless explicitly enabled with command-line flags
+- Combine with specific operation flags to control which tasks to execute
+- Perfect for CI/CD pipelines, cron jobs, and automated update scripts
+
+Example for automated updates:
+```bash
+# Automated nightly backup and update
+python3 moodle_updater.py --non-interactive --directory-backup --db-dump --git-clone --moodle-cli-upgrade --restart-webserver
+```
 
 ## Multithreading Efficiency
 

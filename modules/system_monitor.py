@@ -59,7 +59,7 @@ class SystemMonitor:
         stagnation_time = 0
         last_log_time = 0
         start_time = time.time()
-        approximate_db_to_dump_ratio = 0.583
+        approximate_db_to_dump_ratio = 0.644  # Adjust this ratio based on database characteristics
         estimated_total_size = self.get_database_size_mb(database, user, password) * approximate_db_to_dump_ratio
         logging.info(f"Monitoring database dump progress: {dump_file} | Estimated size: {estimated_total_size / 1024:.2f} GB")
         

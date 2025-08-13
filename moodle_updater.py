@@ -133,6 +133,7 @@ def main():
 
     restart_database_flag = False
     moodle_maintenance_mode_flag = False
+    restore_submodules_from_backup = False
 
     if "--verbose" in sys.argv:
         verbose = True
@@ -253,6 +254,10 @@ def main():
         else:
             sync_submodules = True
 
+        # Ask about restoring submodules from directory backup if sync is off
+        if not sync_submodules and not non_interactive and dir_backup:
+            restore_submodules_from_backup = ApplicationSetup.confirm("Do you want to restore submodules from the old directory backup?", "y")
+
     if moodle_cli_upgrade:
         if "--enable-maintenance-mode" in sys.argv:
             moodle_maintenance_mode_flag = True
@@ -290,7 +295,7 @@ def main():
 
         t_backup_clone = threading.Thread(
             target=backup_manager.dir_backup_and_git_clone,
-            args=(configphp, full_backup, repo, branch, sync_submodules, chown_user, chown_group,)
+            args=(configphp, full_backup, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup,)
         )
         t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
 
@@ -314,7 +319,7 @@ def main():
         multithreading = True
 
         t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
-        t_clone = threading.Thread(target=backup_manager.git_clone, args=(configphp, repo, branch, sync_submodules, chown_user, chown_group,))
+        t_clone = threading.Thread(target=backup_manager.git_clone, args=(configphp, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup,))
 
         logging.info("Starting database dump and git clone (multithreaded).")
         t_dump.start()
@@ -332,7 +337,7 @@ def main():
 
         if git_clone:
             logging.info("Starting git clone")
-            backup_manager.git_clone(configphp, repo, branch, sync_submodules, chown_user, chown_group)
+            backup_manager.git_clone(configphp, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup)
 
     if restart_webserver_flag:
         service_manager.restart_webserver("start")

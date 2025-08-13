@@ -5,6 +5,7 @@ import select
 import shutil
 import subprocess
 import sys
+import glob
 from modules.application_setup import ApplicationSetup
 from modules.system_monitor import SystemMonitor
 
@@ -108,7 +109,7 @@ class MoodleBackupManager:
 
         self.runtime_dump = int(time.time() - start)
 
-    def git_clone(self, config_php, repository, branch, sync_submodules, chown_user, chown_group):
+    def git_clone(self, config_php, repository, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup=False, full_backup=False):
         """Clone a git repository."""
         start = time.time()
         clone_path = os.path.join(self.path, self.moodle)
@@ -149,6 +150,30 @@ class MoodleBackupManager:
                     subprocess.run(['git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path, check=True)
                 except subprocess.CalledProcessError as e:
                     logging.error(f"Git submodule update failed: {e.stderr}")
+        elif restore_submodules_from_backup:
+            if not full_backup:
+                backup_folder = max(glob.glob(os.path.join(self.folder_backup_path, f"{self.moodle}_bak_partial_*")), key=os.path.getmtime)
+            else:
+                backup_folder = max(glob.glob(os.path.join(self.folder_backup_path, f"{self.moodle}_bak_full_*"), "moodle"), key=os.path.getmtime)
+
+            submodules = subprocess.run(['git', 'config', '--file', os.path.join(backup_folder, '.gitmodules'), '--get-regexp', 'path'], capture_output=True, text=True)
+            if submodules.returncode == 0:
+                submodule_paths = [line.split()[1] for line in submodules.stdout.strip().split('\n')]
+            else:
+                logging.error(f"Failed to get submodules from backup: {submodules.stderr.strip()}")
+                submodule_paths = []
+
+            if self.dry_run:
+                logging.info(f"[Dry Run] Would restore submodules {submodule_paths} from backup in {backup_folder} to {clone_path}")
+                for submodule in submodule_paths:
+                        logging.info(f"[Dry Run] would restore submodule {submodule} from backup {backup_folder} to {clone_path}")
+            else:
+                try:
+                    for submodule in submodule_paths:
+                        logging.info(f"Restoring submodule {submodule} from backup {backup_folder} to {clone_path}")
+                        subprocess.run(['cp', '-r', os.path.join(backup_folder, submodule), os.path.join(clone_path, os.path.dirname(submodule))], check=True)
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Restoring submodules from backup failed: {e.stderr}")
 
         if self.dry_run:
             logging.info(f"[Dry Run] Would create config.php in {clone_path}")
@@ -165,11 +190,11 @@ class MoodleBackupManager:
         self.runtime_clone = int(time.time() - start)
         logging.info(f"Git clone completed in {self.runtime_clone} seconds.")
 
-    def dir_backup_and_git_clone(self, config_php, full_backup, repo, branch, sync_submodules, chown_user, chown_group):
+    def dir_backup_and_git_clone(self, config_php, full_backup, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup=False):
         """Perform directory backup followed by git clone."""
         logging.info("Starting directory backup and git clone process.")
         self.dir_backup(full_backup)
-        self.git_clone(config_php, repo, branch, sync_submodules, chown_user, chown_group)
+        self.git_clone(config_php, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup, full_backup)
 
     def moodle_cli_upgrade(self, moodle_maintenance_mode_flag, force_continue):
         """Upgrading Moodle instance via admin/cli/upgrade.php with pre/post system checks"""

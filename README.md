@@ -175,6 +175,7 @@ python3 moodle_updater.py [options]
 - `--verbose` - Enable verbose mode (default: False)
 - `--full-backup` - Backup entire folder (containing moodle, moodledata, and data) (default: False) (used only if --directory-backup is set)
 - `--sync-submodules-off` - Disable syncing and updating of all submodules (default: False)
+- `--restore-submodules` - Restore git submodules from backup (default: False) (requires --directory-backup enabled) (automatically sets --sync-submodules-off to True)
 - `--dry-run` - Run in dry run mode without making any changes (default: False)
 
 **Example Commands:**
@@ -194,6 +195,9 @@ python3 moodle_updater.py --directory-backup --full-backup --verbose
 
 # Update with CLI upgrade and maintenance mode
 python3 moodle_updater.py --git-clone --moodle-cli-upgrade --enable-maintenance-mode
+
+# Restore submodules from backup instead of syncing from remote
+python3 moodle_updater.py --directory-backup --git-clone --restore-submodules
 ```
 
 ### Example Workflow

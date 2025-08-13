@@ -60,6 +60,7 @@ def main():
         print("  --verbose                 Enable verbose mode (default: False)")
         print("  --full-backup             Backup entire folder (containing moodle, moodledata, and data) (default: False) (used only if --directory-backup is set)")
         print("  --sync-submodules-off     Disable syncing and updating of all submodules (default: False)")
+        print("  --restore-submodules      Restore git submodules from backup (default: False) (needs --directory-backup enabled) (if enabled --sync-submodules-off is set to True)")
         print("  --dry-run                 Run in dry run mode (default: False)")
         print("  --help, -h                Show this help message")
         sys.exit(0)
@@ -254,9 +255,17 @@ def main():
         else:
             sync_submodules = True
 
-        # Ask about restoring submodules from directory backup if sync is off
-        if not sync_submodules and not non_interactive and dir_backup:
+        if "--restore-submodules" in sys.argv:
+            if dir_backup:
+                restore_submodules_from_backup = True
+                sync_submodules = False
+            else:
+                logging.error("Cannot restore submodules from backup without directory backup. Skipping. Please enable --directory-backup to restore submodules from backup.")
+                exit(1)
+        elif not non_interactive and not sync_submodules and not non_interactive and dir_backup:
             restore_submodules_from_backup = ApplicationSetup.confirm("Do you want to restore submodules from the old directory backup?", "y")
+        else:
+            restore_submodules_from_backup = False
 
     if moodle_cli_upgrade:
         if "--enable-maintenance-mode" in sys.argv:

@@ -15,6 +15,8 @@
 - **Git Integration**:
   - Clone Moodle's repository from GitHub.
   - Checkout specific branches and sync submodules.
+  - Submodules are updated individually with per-submodule error handling. If a submodule's remote tracking branch doesn't exist, the update continues with the remaining submodules.
+  - A summary of successful and failed submodule updates is displayed at the end of the process.
   - Before updating Moodle, MoodleUpdater now compares the local Moodle version with the latest version available in the configured Git repository. This ensures that updates are not performed if not possible, preventing unnecessary downtime.
 
 - **Automation**:

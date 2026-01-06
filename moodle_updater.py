@@ -388,6 +388,12 @@ def main():
     if multithreading:
         logging.info("Time saved with multithreading: %d seconds", runtime_backup + runtime_dump + runtime_clone + runtime_cliupgrade - runtime)
 
+    # Log failed submodules summary at the end if any failed
+    if backup_manager.failed_submodules:
+        logging.info(SEPARATOR)
+        logging.warning(f"SUBMODULE SYNC SUMMARY: {backup_manager.submodules_failed} submodule(s) failed to update")
+        logging.warning(f"Failed submodules: {', '.join(backup_manager.failed_submodules)}")
+
     logging.info(SEPARATOR)
     logging.info("Finished at %s", time.strftime("%Y-%m-%d %H:%M:%S"))
 

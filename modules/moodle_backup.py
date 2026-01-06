@@ -23,6 +23,10 @@ class MoodleBackupManager:
         self.runtime_dump = None
         self.runtime_clone = None
         self.runtime_cliupgrade = None
+        # Track submodule sync results
+        self.submodules_success = 0
+        self.submodules_failed = 0
+        self.failed_submodules = []
 
     def dir_backup(self, full_backup):
         """Handle directory backups using rsync."""
@@ -149,6 +153,7 @@ class MoodleBackupManager:
                 
                 # Get list of submodules and update each individually
                 result = subprocess.run(['git', 'submodule', 'status'], cwd=clone_path, capture_output=True, text=True)
+                
                 for line in result.stdout.strip().split('\n'):
                     if not line.strip():
                         continue
@@ -157,8 +162,16 @@ class MoodleBackupManager:
                         subprocess.run(['git', 'submodule', 'update', '--init', '--recursive', '--remote', '--', submodule_path], 
                                       cwd=clone_path, check=True)
                         logging.info(f"Updated submodule {submodule_path} with remote tracking branch")
-                    except subprocess.CalledProcessError:
+                        self.submodules_success += 1
+                    except subprocess.CalledProcessError as e:
                         logging.error(f"Git submodule update failed for {submodule_path}: {e.stderr}")
+                        self.submodules_failed += 1
+                        self.failed_submodules.append(submodule_path)
+                
+                # Log brief summary
+                total = self.submodules_success + self.submodules_failed
+                if total > 0:
+                    logging.info(f"Submodule sync complete: {self.submodules_success}/{total} succeeded, {self.submodules_failed}/{total} failed")
         elif restore_submodules_from_backup:
             if not full_backup:
                 backup_folder = max(glob.glob(os.path.join(self.folder_backup_path, f"{self.moodle}_bak_partial_*")), key=os.path.getmtime)

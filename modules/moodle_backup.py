@@ -146,10 +146,19 @@ class MoodleBackupManager:
                     subprocess.run(['git', 'submodule', 'sync'], cwd=clone_path, check=True)
                 except subprocess.CalledProcessError as e:
                     logging.error(f"Git submodule sync failed: {e.stderr}")
-                try:
-                    subprocess.run(['git', 'submodule', 'update', '--init', '--recursive', '--remote'], cwd=clone_path, check=True)
-                except subprocess.CalledProcessError as e:
-                    logging.error(f"Git submodule update failed: {e.stderr}")
+                
+                # Get list of submodules and update each individually
+                result = subprocess.run(['git', 'submodule', 'status'], cwd=clone_path, capture_output=True, text=True)
+                for line in result.stdout.strip().split('\n'):
+                    if not line.strip():
+                        continue
+                    submodule_path = line.split()[1]
+                    try:
+                        subprocess.run(['git', 'submodule', 'update', '--init', '--recursive', '--remote', '--', submodule_path], 
+                                      cwd=clone_path, check=True)
+                        logging.info(f"Updated submodule {submodule_path} with remote tracking branch")
+                    except subprocess.CalledProcessError:
+                        logging.error(f"Git submodule update failed for {submodule_path}: {e.stderr}")
         elif restore_submodules_from_backup:
             if not full_backup:
                 backup_folder = max(glob.glob(os.path.join(self.folder_backup_path, f"{self.moodle}_bak_partial_*")), key=os.path.getmtime)

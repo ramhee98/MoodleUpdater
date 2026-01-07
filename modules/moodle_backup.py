@@ -27,6 +27,9 @@ class MoodleBackupManager:
         self.submodules_success = 0
         self.submodules_failed = 0
         self.failed_submodules = []
+        # Track upgrade failure
+        self.upgrade_failed = False
+        self.upgrade_error_details = []
 
     def dir_backup(self, full_backup):
         """Handle directory backups using rsync."""
@@ -240,6 +243,9 @@ class MoodleBackupManager:
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
                 )
 
+                # Track error indicators from output
+                error_lines = []
+
                 # Process both stdout and stderr as they come in
                 while True:
                     ready_to_read, _, _ = select.select([process.stdout, process.stderr], [], [])
@@ -249,8 +255,12 @@ class MoodleBackupManager:
                             continue
                         if stream is process.stdout:
                             logging.info(line)
+                            # Capture lines that indicate errors (Moodle uses !! prefix for errors)
+                            if line.startswith('!!') or 'error' in line.lower() or 'failed' in line.lower():
+                                error_lines.append(line)
                         elif stream is process.stderr:
                             logging.warning(line)
+                            error_lines.append(line)
                     if process.poll() is not None:
                         break
 
@@ -261,9 +271,16 @@ class MoodleBackupManager:
 
                 if process.returncode != 0:
                     logging.error(f"Moodle upgrade failed with exit code {process.returncode}")
+                    self.upgrade_failed = True
+                    self.upgrade_error_details.append(f"Exit code: {process.returncode}")
+                    # Add captured error lines to details
+                    for err_line in error_lines:
+                        self.upgrade_error_details.append(err_line)
 
             except Exception as e:
                 logging.error(f"Unexpected error during Moodle upgrade: {e}")
+                self.upgrade_failed = True
+                self.upgrade_error_details.append(f"Unexpected error: {e}")
 
             # Run post-upgrade checks
             self.run_moodle_check(before_upgrade=False, force_continue=force_continue)

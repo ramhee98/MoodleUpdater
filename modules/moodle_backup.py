@@ -321,7 +321,6 @@ class MoodleBackupManager:
 
         logging.info("Finished Moodle upgrade via CLI")
         self.runtime_cliupgrade = int(time.time() - start)
-        logging.info(f"Moodle CLI Upgrade completed in {self.runtime_cliupgrade} seconds.")
 
     def moodle_maintenance_mode(self, enable: bool):
         """Enable or disable Moodle maintenance mode."""

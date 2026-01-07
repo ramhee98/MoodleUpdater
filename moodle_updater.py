@@ -379,7 +379,7 @@ def main():
         runtime_clone = 0
 
     if runtime_cliupgrade:
-        logging.info("Moodle CLI Upgrade time needed: %d seconds", runtime_clone)
+        logging.info("Moodle CLI Upgrade time needed: %d seconds", runtime_cliupgrade)
     else:
         runtime_cliupgrade = 0
 

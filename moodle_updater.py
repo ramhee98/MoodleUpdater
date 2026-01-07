@@ -397,7 +397,7 @@ def main():
     # Log upgrade failure summary at the end if upgrade failed
     if backup_manager.upgrade_failed:
         logging.info(SEPARATOR)
-        logging.warning("MOODLE UPGRADE SUMMARY: Upgrade failed!")
+        logging.warning("MOODLE CLI UPGRADE SUMMARY: Upgrade failed!")
         for error in backup_manager.upgrade_error_details:
             logging.warning(f"  - {error}")
 

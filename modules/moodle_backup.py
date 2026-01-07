@@ -245,24 +245,58 @@ class MoodleBackupManager:
 
                 # Track error indicators from output
                 error_lines = []
+                current_section = ""
 
                 # Process both stdout and stderr as they come in
                 while True:
-                    ready_to_read, _, _ = select.select([process.stdout, process.stderr], [], [])
+                    ready_to_read, _, _ = select.select([process.stdout, process.stderr], [], [], 0.1)
                     for stream in ready_to_read:
                         line = stream.readline().strip()
                         if not line:
                             continue
                         if stream is process.stdout:
-                            logging.info(line)
-                            # Capture lines that indicate errors (Moodle uses !! prefix for errors)
-                            if line.startswith('!!') or 'error' in line.lower() or 'failed' in line.lower():
+                            # Track section headers (Moodle uses == Section == format)
+                            if line.startswith('==') and line.endswith('=='):
+                                current_section = line.strip('= ')
+                                logging.info(line)
+                            # Moodle uses !! prefix for errors/warnings
+                            elif line.startswith('!!'):
+                                logging.error(f"{line}")
+                                error_detail = f"{current_section}: {line}" if current_section else line
+                                error_lines.append(error_detail)
+                            elif 'error' in line.lower() or 'failed' in line.lower():
+                                logging.warning(line)
                                 error_lines.append(line)
+                            else:
+                                logging.info(line)
                         elif stream is process.stderr:
                             logging.warning(line)
                             error_lines.append(line)
                     if process.poll() is not None:
                         break
+
+                # Drain any remaining output after process ends
+                for stream in [process.stdout, process.stderr]:
+                    for line in stream:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if stream is process.stdout:
+                            if line.startswith('==') and line.endswith('=='):
+                                current_section = line.strip('= ')
+                                logging.info(line)
+                            elif line.startswith('!!'):
+                                logging.error(f"{line}")
+                                error_detail = f"{current_section}: {line}" if current_section else line
+                                error_lines.append(error_detail)
+                            elif 'error' in line.lower() or 'failed' in line.lower():
+                                logging.warning(line)
+                                error_lines.append(line)
+                            else:
+                                logging.info(line)
+                        else:
+                            logging.warning(line)
+                            error_lines.append(line)
 
                 process.wait()
 

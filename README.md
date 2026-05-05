@@ -92,7 +92,7 @@
 
 3. Set up the configuration file:
 
-   The `config.ini` file contains the following settings:
+   Copy `config_template.ini` to `config.ini` (or let the script auto-create it on first startup) and adjust it to your needs. The `config.ini` file contains the following settings:
    - **dry_run**: Enable dry run mode to simulate operations without making any changes.
    - **auto_update_script**: Automatically check and pull updates for MoodleUpdater from the Git repository at the start. Default is False.
    - **repo**: URL of the Moodle repository to clone.

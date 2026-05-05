@@ -18,7 +18,10 @@ class GitManager:
                 ['git', '-C', pwd, 'show', '-s', '--format=%ci|%an|%s', commit_hash],
                 capture_output=True, text=True, check=True
             )
-            output = result.stdout.strip().split('|')
+            # Use maxsplit=2 so a commit summary containing literal '|' is
+            # preserved intact rather than truncated or causing the length
+            # check below to fail.
+            output = result.stdout.strip().split('|', 2)
 
             if len(output) == 3:
                 return output  # Returns (time, author, summary)

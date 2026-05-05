@@ -1,4 +1,6 @@
 # Standard Library
+import errno
+import fcntl
 import logging
 import os
 import subprocess
@@ -124,6 +126,26 @@ def main():
         folder_backup_path=folder_backup_path,
         dry_run=dry_run
     )
+
+    # Acquire a per-instance lock so two concurrent moodle_updater.py runs
+    # can't clobber each other's backups, dumps, or git clones for the same
+    # Moodle instance. The lock file is kept under the configured backup
+    # path so it survives across runs but is scoped to one instance.
+    os.makedirs(folder_backup_path, exist_ok=True)
+    lock_path = os.path.join(folder_backup_path, f".moodle_updater_{moodle}.lock")
+    lock_fp = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        if e.errno in (errno.EAGAIN, errno.EACCES):
+            logging.error(
+                f"Another moodle_updater.py run is already in progress for "
+                f"instance '{moodle}' (lock file: {lock_path}). Aborting."
+            )
+            sys.exit(1)
+        raise
+    lock_fp.write(f"{os.getpid()}\n")
+    lock_fp.flush()
 
     if "--restart-webserver" in sys.argv:
         restart_webserver_flag = True

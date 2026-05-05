@@ -1,8 +1,16 @@
 import os
+import re
 import logging
 import time
 import threading
 import subprocess
+
+# MySQL identifier rules: letters, digits, underscore, dollar sign (1-64 chars).
+# We also allow hyphens because Moodle deployments often use db names like
+# "moodle-prod". Anything else is rejected to prevent SQL injection via the
+# database name interpolated into the SQL query below.
+_DB_NAME_RE = re.compile(r'^[A-Za-z0-9_$\-]{1,64}$')
+
 
 class SystemMonitor:
     """Monitors system resource usage and database dump progress."""
@@ -11,6 +19,12 @@ class SystemMonitor:
         self.stop_event = threading.Event()
 
     def get_database_size_mb(self, database, user, password):
+        # Reject any database name that is not a plain identifier. Without
+        # this check a malicious or malformed name (e.g. one containing a
+        # quote) would be interpolated directly into the SQL string below.
+        if not _DB_NAME_RE.match(database or ''):
+            logging.error(f"Refusing to query database with invalid name: {database!r}")
+            return 1
         # SQL query to get database size
         query = """
         SELECT

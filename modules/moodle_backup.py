@@ -76,11 +76,15 @@ class MoodleBackupManager:
             db_dump_path,
             f"{dbname}_{time.strftime('%Y-%m-%d-%H-%M-%S')}.sql"
         )
+        # Pass the DB password via the MYSQL_PWD environment variable rather
+        # than as a -p<pw> CLI argument: CLI args are visible in `ps` output
+        # and shell history, env vars are not.
         dump_args = [
-            'mysqldump', '-u', dbuser, f'-p{dbpass}',
+            'mysqldump', '-u', dbuser,
             '--single-transaction', '--skip-lock-tables',
             '--max_allowed_packet=100M', '--quick', '--databases', dbname
         ]
+        dump_env = {**os.environ, 'MYSQL_PWD': dbpass}
 
         if verbose:
             dump_args.append('--verbose')
@@ -95,12 +99,11 @@ class MoodleBackupManager:
 
         try:
             if self.dry_run:
-                sanitized_args = [arg if not arg.startswith('-p') else '-p *****' for arg in dump_args]
-                logging.info(f"[Dry Run] Would run: {' '.join(sanitized_args)}")
+                logging.info(f"[Dry Run] Would run: {' '.join(dump_args)} (with MYSQL_PWD set)")
                 time.sleep(10)
             else:
                 with open(dump_file, "w") as dump:
-                    result = subprocess.run(dump_args, stdout=dump, stderr=subprocess.PIPE, text=True, check=True)
+                    result = subprocess.run(dump_args, stdout=dump, stderr=subprocess.PIPE, text=True, check=True, env=dump_env)
                     if result.stderr:
                         logging.warning(f"mysqldump warning: {result.stderr.strip()}")
                     logging.info(f"Database dump saved in {dump_file} - ({os.path.getsize(dump_file) / (1024 * 1024 * 1024):.2f} GB)")

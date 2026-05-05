@@ -41,12 +41,13 @@ class SystemMonitor:
         cmd = [
             'mysql',
             '-u', user,
-            f'-p{password}',
             '-N',   # Skip column names in output
             '-e', query,
         ]
+        # Pass password via MYSQL_PWD env var so it is not visible in `ps`.
+        env = {**os.environ, 'MYSQL_PWD': password}
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
 
         if result.returncode == 0:
             output = result.stdout.strip()

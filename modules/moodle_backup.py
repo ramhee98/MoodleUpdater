@@ -11,6 +11,23 @@ from modules.system_monitor import SystemMonitor
 
 SEPARATOR = "-------------------------------------------------------------------------"
 
+
+def _sanitize_db_output(text, password):
+    """Strip the literal password and password-related warnings from
+    mysql/mysqldump output before it goes to the log."""
+    if not text:
+        return ""
+    sanitized = text
+    if password:
+        sanitized = sanitized.replace(password, "*****")
+    # Drop the well-known mysqldump/mysql line about using -p on the CLI;
+    # it's noise, and depending on locale variants it can be quoted oddly.
+    cleaned_lines = [
+        line for line in sanitized.splitlines()
+        if "password on the command line" not in line.lower()
+    ]
+    return "\n".join(cleaned_lines).strip()
+
 class MoodleBackupManager:
     """Manages directory backups, database dumps, and Git clone operations for Moodle."""
 
@@ -104,14 +121,15 @@ class MoodleBackupManager:
             else:
                 with open(dump_file, "w") as dump:
                     result = subprocess.run(dump_args, stdout=dump, stderr=subprocess.PIPE, text=True, check=True, env=dump_env)
-                    if result.stderr:
-                        logging.warning(f"mysqldump warning: {result.stderr.strip()}")
+                    sanitized_stderr = _sanitize_db_output(result.stderr, dbpass)
+                    if sanitized_stderr:
+                        logging.warning(f"mysqldump warning: {sanitized_stderr}")
                     logging.info(f"Database dump saved in {dump_file} - ({os.path.getsize(dump_file) / (1024 * 1024 * 1024):.2f} GB)")
         except (IOError, OSError) as file_error:
             logging.error(f"Failed to open {dump_file} for writing: {file_error}")
             return
         except subprocess.CalledProcessError as e:
-            logging.error(f"Database dump failed: {e.stderr.strip()}")
+            logging.error(f"Database dump failed: {_sanitize_db_output(e.stderr, dbpass)}")
             return
         finally:
             # Stop monitoring

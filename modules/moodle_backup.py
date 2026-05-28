@@ -47,6 +47,31 @@ class MoodleBackupManager:
         # Track upgrade failure
         self.upgrade_failed = False
         self.upgrade_error_details = []
+        # Track plugin restore results
+        self.runtime_restore_plugins = None
+        self.restored_plugins = []
+        self.skipped_plugins = []
+
+    # Standard Moodle plugin parent directories. Subdirs containing a
+    # version.php are treated as third-party plugins worth restoring.
+    PLUGIN_PARENTS = [
+        'admin/tool',
+        'auth',
+        'availability/condition',
+        'blocks',
+        'course/format',
+        'enrol',
+        'filter',
+        'local',
+        'message/output',
+        'mod',
+        'plagiarism',
+        'question/format',
+        'question/type',
+        'report',
+        'repository',
+        'theme',
+    ]
 
     def dir_backup(self, full_backup):
         """Handle directory backups using rsync."""
@@ -241,6 +266,117 @@ class MoodleBackupManager:
         logging.info("Starting directory backup and git clone process.")
         self.dir_backup(full_backup)
         self.git_clone(config_php, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup, full_backup)
+
+    def _find_code_root(self, moodle_root):
+        """Return the dir holding Moodle's code tree.
+
+        Moodle 5.x splits the codebase: source lives under <root>/public/, with
+        composer.json and friends at <root>/. Earlier versions keep everything at
+        <root>/. Detect by checking where the plugin parents actually exist.
+        """
+        candidates = [moodle_root, os.path.join(moodle_root, 'public')]
+        for candidate in candidates:
+            if not os.path.isdir(candidate):
+                continue
+            for parent in self.PLUGIN_PARENTS:
+                if os.path.isdir(os.path.join(candidate, parent)):
+                    return candidate
+        return moodle_root
+
+    def restore_plugins(self, chown_user, chown_group, full_backup=False):
+        """Copy third-party plugins present in the latest directory backup but missing from the new clone."""
+        start = time.time()
+        logging.info("Starting plugin restore from backup.")
+
+        clone_path = os.path.join(self.path, self.moodle)
+
+        # Locate the latest directory backup (mirrors restore-submodules logic).
+        if not full_backup:
+            pattern = os.path.join(self.folder_backup_path, f"{self.moodle}_bak_partial_*")
+        else:
+            pattern = os.path.join(self.folder_backup_path, f"{self.moodle}_bak_full_*")
+        candidates = glob.glob(pattern)
+        if not candidates:
+            logging.error(f"No directory backup found matching {pattern}; cannot restore plugins.")
+            return
+        backup_folder = max(candidates, key=os.path.getmtime)
+
+        # In a full backup the moodle source lives under <backup>/<moodle>/.
+        backup_moodle_root = os.path.join(backup_folder, self.moodle) if full_backup else backup_folder
+
+        # Moodle 5.x uses a "public dir" layout where plugins live under public/.
+        # Detect which root contains the plugin parents in both the backup and the new clone.
+        backup_code_root = self._find_code_root(backup_moodle_root)
+        clone_code_root = self._find_code_root(clone_path)
+        if backup_code_root != backup_moodle_root or clone_code_root != clone_path:
+            logging.info(f"Detected Moodle public-dir layout. Backup code root: {backup_code_root}, clone code root: {clone_code_root}.")
+
+        # Submodule paths are already handled by --restore-submodules; skip them here.
+        # .gitmodules sits at the repo root, but paths inside are relative to it,
+        # so we also need to strip the public/ prefix when comparing.
+        submodule_paths = set()
+        gitmodules = os.path.join(backup_moodle_root, '.gitmodules')
+        if os.path.isfile(gitmodules):
+            result = subprocess.run(
+                ['git', 'config', '--file', gitmodules, '--get-regexp', 'path'],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                raw_paths = {line.split()[1] for line in result.stdout.strip().split('\n') if line.strip()}
+                code_root_rel = os.path.relpath(backup_code_root, backup_moodle_root)
+                prefix = '' if code_root_rel == '.' else code_root_rel + os.sep
+                for p in raw_paths:
+                    submodule_paths.add(p[len(prefix):] if prefix and p.startswith(prefix) else p)
+
+        # Discover plugin candidates: subdirs of each known plugin parent that contain version.php.
+        plugins_to_restore = []
+        for parent in self.PLUGIN_PARENTS:
+            backup_parent = os.path.join(backup_code_root, parent)
+            if not os.path.isdir(backup_parent):
+                continue
+            for entry in sorted(os.listdir(backup_parent)):
+                rel_path = os.path.join(parent, entry)
+                src = os.path.join(backup_parent, entry)
+                if not os.path.isdir(src):
+                    continue
+                if not os.path.isfile(os.path.join(src, 'version.php')):
+                    continue
+                if rel_path in submodule_paths:
+                    continue
+                dst = os.path.join(clone_code_root, rel_path)
+                if os.path.exists(dst):
+                    self.skipped_plugins.append(rel_path)
+                    logging.debug(f"Skipping plugin {rel_path}: already present in new clone.")
+                    continue
+                plugins_to_restore.append((rel_path, src, dst))
+
+        if not plugins_to_restore:
+            logging.info("No missing third-party plugins detected in backup.")
+            self.runtime_restore_plugins = int(time.time() - start)
+            return
+
+        if self.dry_run:
+            for rel_path, src, dst in plugins_to_restore:
+                logging.info(f"[Dry Run] Would copy plugin {rel_path} from {src} to {dst}")
+                self.restored_plugins.append(rel_path)
+        else:
+            for rel_path, src, dst in plugins_to_restore:
+                try:
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    subprocess.run(['cp', '-r', src, dst], check=True)
+                    logging.info(f"Restored plugin {rel_path} from backup.")
+                    self.restored_plugins.append(rel_path)
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Failed to restore plugin {rel_path}: {e.stderr}")
+
+            if self.restored_plugins:
+                try:
+                    subprocess.run(['chown', f'{chown_user}:{chown_group}', clone_path, '-R'], check=True)
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Setting ownership after plugin restore failed: {e.stderr}")
+
+        self.runtime_restore_plugins = int(time.time() - start)
+        logging.info(f"Plugin restore completed in {self.runtime_restore_plugins} seconds. Restored: {len(self.restored_plugins)}, already present: {len(self.skipped_plugins)}.")
 
     def moodle_cli_upgrade(self, moodle_maintenance_mode_flag, force_continue):
         """Upgrading Moodle instance via admin/cli/upgrade.php with pre/post system checks"""

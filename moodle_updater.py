@@ -63,6 +63,7 @@ def main():
         print("  --full-backup             Backup entire folder (containing moodle, moodledata, and data) (default: False) (used only if --directory-backup is set)")
         print("  --sync-submodules-off     Disable syncing and updating of all submodules (default: False)")
         print("  --restore-submodules      Restore git submodules from backup (default: False) (needs --directory-backup enabled) (if enabled --sync-submodules-off is set to True)")
+        print("  --restore-plugins         Copy third-party plugins present in the directory backup but missing from the new clone (default: False) (needs --directory-backup and --git-clone enabled)")
         print("  --dry-run                 Run in dry run mode (default: False)")
         print("  --help, -h                Show this help message")
         sys.exit(0)
@@ -157,6 +158,7 @@ def main():
     restart_database_flag = False
     moodle_maintenance_mode_flag = False
     restore_submodules_from_backup = False
+    restore_plugins_from_backup = False
 
     if "--verbose" in sys.argv:
         verbose = True
@@ -289,6 +291,27 @@ def main():
         else:
             restore_submodules_from_backup = False
 
+        if "--restore-plugins" in sys.argv:
+            if dir_backup:
+                restore_plugins_from_backup = True
+            else:
+                logging.error("Cannot restore plugins from backup without directory backup. Skipping. Please enable --directory-backup to restore plugins from backup.")
+                exit(1)
+        elif not non_interactive:
+            restore_plugins_from_backup = ApplicationSetup.confirm("Do you want to restore third-party plugins from the old directory backup?", "n")
+            if restore_plugins_from_backup and not dir_backup:
+                # Plugin restore needs a directory backup to copy from — force an explicit y/n.
+                enable_dir_backup = ApplicationSetup.confirm("Restoring plugins requires a directory backup. Enable directory backup now?")
+                if enable_dir_backup:
+                    dir_backup = True
+                    full_backup = False
+                    logging.info("Directory backup enabled to support plugin restore.")
+                else:
+                    restore_plugins_from_backup = False
+                    logging.info("Plugin restore skipped because directory backup was not enabled.")
+        else:
+            restore_plugins_from_backup = False
+
     if moodle_cli_upgrade:
         if "--enable-maintenance-mode" in sys.argv:
             moodle_maintenance_mode_flag = True
@@ -370,6 +393,9 @@ def main():
             logging.info("Starting git clone")
             backup_manager.git_clone(configphp, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup)
 
+    if restore_plugins_from_backup and git_clone:
+        backup_manager.restore_plugins(chown_user, chown_group, full_backup=full_backup if dir_backup else False)
+
     if restart_webserver_flag:
         service_manager.restart_webserver("start")
 
@@ -405,6 +431,12 @@ def main():
     else:
         runtime_cliupgrade = 0
 
+    runtime_restore_plugins = backup_manager.runtime_restore_plugins
+    if runtime_restore_plugins:
+        logging.info("Plugin restore time needed: %d seconds", runtime_restore_plugins)
+    else:
+        runtime_restore_plugins = 0
+
     # Log total runtime
     logging.info("Total execution time (excluding user input): %d seconds", runtime)
     if multithreading:
@@ -415,6 +447,13 @@ def main():
         logging.info(SEPARATOR)
         logging.warning(f"SUBMODULE SYNC SUMMARY: {backup_manager.submodules_failed} submodule(s) failed to update")
         logging.warning(f"Failed submodules: {', '.join(backup_manager.failed_submodules)}")
+
+    # Log plugin restore summary at the end if it ran
+    if backup_manager.restored_plugins or backup_manager.skipped_plugins:
+        logging.info(SEPARATOR)
+        logging.info(f"PLUGIN RESTORE SUMMARY: {len(backup_manager.restored_plugins)} restored, {len(backup_manager.skipped_plugins)} already present")
+        if backup_manager.restored_plugins:
+            logging.info(f"Restored plugins: {', '.join(backup_manager.restored_plugins)}")
 
     # Log upgrade failure summary at the end if upgrade failed
     if backup_manager.upgrade_failed:

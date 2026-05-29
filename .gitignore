@@ -3,6 +3,7 @@ config.ini
 *_bak_*
 *.log
 *.log.*
+*.lock
 
 # Ignore compiled Python files
 __pycache__/

@@ -178,7 +178,8 @@ python3 moodle_updater.py [options]
 - `--full-backup` - Backup entire folder (containing moodle, moodledata, and data) (default: False) (used only if --directory-backup is set)
 - `--sync-submodules-off` - Disable syncing and updating of all submodules (default: False)
 - `--restore-submodules` - Restore git submodules from backup (default: False) (requires --directory-backup enabled) (automatically sets --sync-submodules-off to True)
-- `--restore-plugins` - Copy third-party plugins present in the directory backup but missing from the new clone (default: False) (requires --directory-backup and --git-clone enabled)
+- `--restore-plugins` - Copy third-party plugins present in the directory backup but missing from the new clone (requires --directory-backup and --git-clone enabled)
+- `--restore-plugins-manual` - Prompt y/n for each plugin instead of restoring all of them (default: False) (used only with --restore-plugins; requires interactive mode)
 - `--dry-run` - Run in dry run mode without making any changes (default: False)
 
 **Example Commands:**
@@ -204,6 +205,9 @@ python3 moodle_updater.py --directory-backup --git-clone --restore-submodules
 
 # Carry third-party plugins from the old install across the upgrade
 python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --moodle-cli-upgrade
+
+# Same, but choose interactively which plugins to restore
+python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --restore-plugins-manual --moodle-cli-upgrade
 ```
 
 ### Example Workflow

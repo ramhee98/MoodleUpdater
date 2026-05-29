@@ -64,6 +64,7 @@ def main():
         print("  --sync-submodules-off     Disable syncing and updating of all submodules (default: False)")
         print("  --restore-submodules      Restore git submodules from backup (default: False) (needs --directory-backup enabled) (if enabled --sync-submodules-off is set to True)")
         print("  --restore-plugins         Copy third-party plugins present in the directory backup but missing from the new clone (default: False) (needs --directory-backup and --git-clone enabled)")
+        print("  --restore-plugins-manual  Prompt y/n for each plugin instead of restoring all (default: False) (used only with --restore-plugins)")
         print("  --dry-run                 Run in dry run mode (default: False)")
         print("  --help, -h                Show this help message")
         sys.exit(0)
@@ -159,6 +160,8 @@ def main():
     moodle_maintenance_mode_flag = False
     restore_submodules_from_backup = False
     restore_plugins_from_backup = False
+    # "auto" restores every missing plugin; "manual" prompts y/n per plugin.
+    restore_plugins_mode = "auto"
 
     if "--verbose" in sys.argv:
         verbose = True
@@ -298,10 +301,10 @@ def main():
                 logging.error("Cannot restore plugins from backup without directory backup. Skipping. Please enable --directory-backup to restore plugins from backup.")
                 exit(1)
         elif not non_interactive:
-            restore_plugins_from_backup = ApplicationSetup.confirm("Do you want to restore third-party plugins from the old directory backup?", "n")
+            restore_plugins_from_backup = ApplicationSetup.confirm("Do you want to restore third-party plugins from the old directory backup?")
             if restore_plugins_from_backup and not dir_backup:
                 # Plugin restore needs a directory backup to copy from — force an explicit y/n.
-                enable_dir_backup = ApplicationSetup.confirm("Restoring plugins requires a directory backup. Enable directory backup now?")
+                enable_dir_backup = ApplicationSetup.confirm("Restoring plugins requires a directory backup. Enable directory backup now?", "y")
                 if enable_dir_backup:
                     dir_backup = True
                     full_backup = False
@@ -311,6 +314,19 @@ def main():
                     logging.info("Plugin restore skipped because directory backup was not enabled.")
         else:
             restore_plugins_from_backup = False
+
+        # Decide how plugins get selected: restore everything, or choose per plugin.
+        if restore_plugins_from_backup:
+            if "--restore-plugins-manual" in sys.argv:
+                if non_interactive:
+                    logging.error("--restore-plugins-manual requires interactive input and cannot be used in non-interactive mode.")
+                    exit(1)
+                restore_plugins_mode = "manual"
+            elif not non_interactive and "--restore-plugins" not in sys.argv:
+                # Only prompt for the mode when the restore itself was chosen interactively.
+                restore_all = ApplicationSetup.confirm(
+                    "Restore all missing plugins automatically? (No lets you choose each one)")
+                restore_plugins_mode = "auto" if restore_all else "manual"
 
     if moodle_cli_upgrade:
         if "--enable-maintenance-mode" in sys.argv:
@@ -394,7 +410,7 @@ def main():
             backup_manager.git_clone(configphp, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup)
 
     if restore_plugins_from_backup and git_clone:
-        backup_manager.restore_plugins(chown_user, chown_group, full_backup=full_backup if dir_backup else False)
+        backup_manager.restore_plugins(chown_user, chown_group, full_backup=full_backup if dir_backup else False, selection_mode=restore_plugins_mode)
 
     if restart_webserver_flag:
         service_manager.restart_webserver("start")

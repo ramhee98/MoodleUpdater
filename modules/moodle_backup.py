@@ -283,8 +283,12 @@ class MoodleBackupManager:
                     return candidate
         return moodle_root
 
-    def restore_plugins(self, chown_user, chown_group, full_backup=False):
-        """Copy third-party plugins present in the latest directory backup but missing from the new clone."""
+    def restore_plugins(self, chown_user, chown_group, full_backup=False, selection_mode="auto"):
+        """Copy third-party plugins present in the latest directory backup but missing from the new clone.
+
+        selection_mode "auto" restores every missing plugin; "manual" prompts y/n
+        for each discovered plugin before copying it.
+        """
         start = time.time()
         logging.info("Starting plugin restore from backup.")
 
@@ -354,6 +358,22 @@ class MoodleBackupManager:
             logging.info("No missing third-party plugins detected in backup.")
             self.runtime_restore_plugins = int(time.time() - start)
             return
+
+        # In manual mode let the user pick which discovered plugins to restore.
+        if selection_mode == "manual":
+            logging.info(f"Found {len(plugins_to_restore)} missing third-party plugin(s) in backup.")
+            selected = []
+            for rel_path, src, dst in plugins_to_restore:
+                if ApplicationSetup.confirm(f"Restore plugin {rel_path}?", "y"):
+                    selected.append((rel_path, src, dst))
+                else:
+                    self.skipped_plugins.append(rel_path)
+                    logging.info(f"Skipping plugin {rel_path}: deselected by user.")
+            plugins_to_restore = selected
+            if not plugins_to_restore:
+                logging.info("No plugins selected for restore.")
+                self.runtime_restore_plugins = int(time.time() - start)
+                return
 
         if self.dry_run:
             for rel_path, src, dst in plugins_to_restore:

@@ -52,26 +52,25 @@ class MoodleBackupManager:
         self.restored_plugins = []
         self.skipped_plugins = []
 
-    # Standard Moodle plugin parent directories. Subdirs containing a
-    # version.php are treated as third-party plugins worth restoring.
+    # Well-known plugin parent directories, used only to detect the Moodle 5.x
+    # "public dir" layout (see _find_code_root). Plugin *discovery* no longer
+    # relies on this list — it walks the tree for version.php instead — so this
+    # only needs a few entries that reliably exist in every Moodle install.
     PLUGIN_PARENTS = [
         'admin/tool',
         'auth',
-        'availability/condition',
         'blocks',
-        'course/format',
         'enrol',
         'filter',
-        'local',
-        'message/output',
         'mod',
-        'plagiarism',
-        'question/format',
-        'question/type',
-        'report',
         'repository',
         'theme',
     ]
+
+    # Directories never descended into while discovering plugins: VCS metadata
+    # and bundled dependency trees, which can hold stray version.php files that
+    # are not Moodle plugins.
+    PLUGIN_WALK_SKIP_DIRS = {'.git', 'node_modules', 'vendor'}
 
     def dir_backup(self, full_backup):
         """Handle directory backups using rsync."""
@@ -332,27 +331,44 @@ class MoodleBackupManager:
                 for p in raw_paths:
                     submodule_paths.add(p[len(prefix):] if prefix and p.startswith(prefix) else p)
 
-        # Discover plugin candidates: subdirs of each known plugin parent that contain version.php.
-        plugins_to_restore = []
-        for parent in self.PLUGIN_PARENTS:
-            backup_parent = os.path.join(backup_code_root, parent)
-            if not os.path.isdir(backup_parent):
+        # Discover plugin candidates structurally: any directory under the code
+        # root containing a version.php is a Moodle plugin, regardless of where it
+        # lives. This covers every plugin type (including ones added in newer
+        # Moodle releases) without maintaining a hardcoded parent-directory list.
+        # Subplugins (e.g. mod/quiz/report/*) are nested inside another plugin's
+        # tree, so we keep descending and collect every version.php dir.
+        candidates = []
+        for dirpath, dirnames, filenames in os.walk(backup_code_root):
+            # Don't descend into VCS metadata or bundled dependency trees — they
+            # never hold Moodle plugins and can contain stray version.php files.
+            dirnames[:] = [d for d in dirnames if d not in self.PLUGIN_WALK_SKIP_DIRS]
+            if 'version.php' not in filenames:
                 continue
-            for entry in sorted(os.listdir(backup_parent)):
-                rel_path = os.path.join(parent, entry)
-                src = os.path.join(backup_parent, entry)
-                if not os.path.isdir(src):
-                    continue
-                if not os.path.isfile(os.path.join(src, 'version.php')):
-                    continue
-                if rel_path in submodule_paths:
-                    continue
-                dst = os.path.join(clone_code_root, rel_path)
-                if os.path.exists(dst):
-                    self.skipped_plugins.append(rel_path)
-                    logging.debug(f"Skipping plugin {rel_path}: already present in new clone.")
-                    continue
-                plugins_to_restore.append((rel_path, src, dst))
+            rel_path = os.path.relpath(dirpath, backup_code_root)
+            if rel_path in submodule_paths:
+                logging.debug(f"Skipping plugin {rel_path}: handled as a git submodule, not a restorable plugin.")
+                continue
+            dst = os.path.join(clone_code_root, rel_path)
+            if os.path.exists(dst):
+                # Already in the new clone: a core plugin, or a third-party one
+                # that the repo/submodules already provide. Nothing to restore.
+                self.skipped_plugins.append(rel_path)
+                logging.debug(f"Skipping plugin {rel_path}: already present in new clone.")
+                continue
+            candidates.append((rel_path, dirpath, dst))
+
+        # A missing parent plugin is restored with `cp -r`, which already carries
+        # its nested subplugins. Drop any candidate whose ancestor is also being
+        # restored so we don't copy the same tree twice.
+        candidates.sort(key=lambda c: c[0])
+        plugins_to_restore = []
+        restored_roots = []
+        for rel_path, src, dst in candidates:
+            if any(rel_path == root or rel_path.startswith(root + os.sep) for root in restored_roots):
+                logging.debug(f"Skipping plugin {rel_path}: nested inside {next(r for r in restored_roots if rel_path.startswith(r + os.sep))}, restored with its parent.")
+                continue
+            restored_roots.append(rel_path)
+            plugins_to_restore.append((rel_path, src, dst))
 
         if not plugins_to_restore:
             logging.info("No missing third-party plugins detected in backup.")

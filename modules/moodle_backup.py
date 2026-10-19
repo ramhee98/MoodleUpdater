@@ -28,6 +28,20 @@ def _sanitize_db_output(text, password):
     ]
     return "\n".join(cleaned_lines).strip()
 
+
+def resolve_db_tool(mariadb_name, mysql_name):
+    """Return the name of whichever DB client binary is installed.
+
+    Newer MariaDB packages (e.g. Debian 13) only ship the mariadb-* names;
+    the mysql* aliases live in an optional compat package. MySQL installs
+    only have the mysql* names. Prefer mariadb-* since the mysql* aliases are
+    deprecated there, and fall back to mysql_name so the error stays readable
+    if neither exists."""
+    for name in (mariadb_name, mysql_name):
+        if shutil.which(name):
+            return name
+    return mysql_name
+
 class MoodleBackupManager:
     """Manages directory backups, database dumps, and Git clone operations for Moodle."""
 
@@ -121,7 +135,7 @@ class MoodleBackupManager:
         # than as a -p<pw> CLI argument: CLI args are visible in `ps` output
         # and shell history, env vars are not.
         dump_args = [
-            'mysqldump', '-u', dbuser,
+            resolve_db_tool('mariadb-dump', 'mysqldump'), '-u', dbuser,
             '--single-transaction', '--skip-lock-tables',
             '--max_allowed_packet=100M', '--quick', '--databases', dbname
         ]

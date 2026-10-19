@@ -13,7 +13,7 @@ from logging.handlers import RotatingFileHandler
 
 # Modules
 from modules.application_setup import ApplicationSetup
-from modules.moodle_backup import MoodleBackupManager
+from modules.moodle_backup import MoodleBackupManager, resolve_db_tool
 from modules.config_manager import ConfigManager
 from modules.moodle_version import MoodleVersionChecker
 from modules.service_manager import ServiceManager
@@ -215,12 +215,16 @@ def main():
             logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}")
             result = "returncode=0"
         else:
+            show_tool = resolve_db_tool('mariadb-show', 'mysqlshow')
             try:
                 subprocess.run(
-                    ['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname],
+                    [show_tool, '-u', dbuser, f'-p{dbpass}', dbname],
                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=True
                 )
                 logging.info("Connection to DB established.")
+            except FileNotFoundError:
+                logging.error("Neither mariadb-show nor mysqlshow found. Install the MariaDB/MySQL client tools.")
+                sys.exit(1)
             except subprocess.CalledProcessError as e:
                 logging.error(f"Connection to DB failed: {e.stderr}")
                 while not dbpass.strip():
@@ -229,7 +233,7 @@ def main():
                         break
                 try:
                     subprocess.run(
-                        ['mysqlshow', '-u', dbuser, f'-p{dbpass}', dbname],
+                        [show_tool, '-u', dbuser, f'-p{dbpass}', dbname],
                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=True
                     )
                     logging.info("Connection to DB established.")

@@ -82,3 +82,18 @@ def test_backup_keeps_symlinks_and_modes(tmp_path):
     assert os.readlink(copy / "link.sh") == "run.sh"
     assert os.path.islink(copy / "dangling")
     assert _mode(copy / "run.sh") == 0o750
+
+
+def test_failed_dump_leaves_no_partial_file(tmp_path, monkeypatch):
+    def failing_run(cmd, stdout=None, **kwargs):
+        stdout.write("-- partial dump\n")
+        raise subprocess.CalledProcessError(2, cmd, None, "Lost connection")
+
+    monkeypatch.setattr(subprocess, "run", failing_run)
+    monkeypatch.setattr("modules.moodle_backup.SystemMonitor.start_monitoring", lambda *a: None)
+    monkeypatch.setattr("modules.moodle_backup.SystemMonitor.stop_monitoring", lambda *a: None)
+    dump_dir = tmp_path / "new" / "dumps"  # does not exist yet
+    manager = MoodleBackupManager(str(tmp_path), "moodle", str(tmp_path))
+    assert manager.db_dump("db", "u", "p", False, str(dump_dir)) is False
+    assert dump_dir.is_dir()
+    assert list(dump_dir.iterdir()) == []

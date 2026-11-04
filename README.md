@@ -229,7 +229,7 @@ python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --res
    - Backups are stored with timestamps in a folder defined in `config.ini` for easy identification.
 
 2. **Database Backup**:
-   - Dump the Moodle database to a `.sql` file in the directory specified in `config.ini`.
+   - Dump the Moodle database to a `.sql` file in the directory specified in `config.ini` (the directory is created if needed). If the dump fails, the incomplete file is deleted so it can't be mistaken for a valid backup.
    - Database credentials are read from the `config.php` file if `read_db_from_config` is enabled in `config.ini`. Otherwise, credentials specified in `config.ini` are used, password is requested by the user.
    - Before dumping, the script asks if the database should be restarted.
    - If restarted, a **2-second pause** is added to ensure the database is fully initialized before proceeding.

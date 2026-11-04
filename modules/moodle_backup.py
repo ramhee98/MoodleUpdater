@@ -220,11 +220,13 @@ class MoodleBackupManager:
         # Start monitoring during database dump
         monitor.start_monitoring(dump_file, dbname, dbuser, dbpass)
 
+        completed = False
         try:
             if self.dry_run:
                 logging.info(f"[Dry Run] Would run: {' '.join(dump_args)} (with MYSQL_PWD set)")
                 time.sleep(10)
             else:
+                os.makedirs(db_dump_path, exist_ok=True)
                 # The dump contains every user record and password hash: 0600.
                 fd = os.open(dump_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 os.fchmod(fd, 0o600)
@@ -234,8 +236,9 @@ class MoodleBackupManager:
                     if sanitized_stderr:
                         logging.warning(f"mysqldump warning: {sanitized_stderr}")
                     logging.info(f"Database dump saved in {dump_file} - ({os.path.getsize(dump_file) / (1024 * 1024 * 1024):.2f} GB)")
-        except (IOError, OSError) as file_error:
-            logging.error(f"Failed to open {dump_file} for writing: {file_error}")
+            completed = True
+        except OSError as error:
+            logging.error(f"Database dump to {dump_file} failed: {error}")
             return False
         except subprocess.CalledProcessError as e:
             logging.error(f"Database dump failed: {_sanitize_db_output(e.stderr, dbpass)}")
@@ -243,6 +246,11 @@ class MoodleBackupManager:
         finally:
             # Stop monitoring
             monitor.stop_monitoring()
+            # A truncated dump looks like a valid backup; never leave one behind
+            # (also on Ctrl-C).
+            if not completed and not self.dry_run and os.path.exists(dump_file):
+                logging.warning(f"Removing incomplete dump file {dump_file}")
+                os.remove(dump_file)
 
         self.runtime_dump = int(time.time() - start)
         return True

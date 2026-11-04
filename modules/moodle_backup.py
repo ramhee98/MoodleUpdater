@@ -128,7 +128,11 @@ class MoodleBackupManager:
             self.backup_folder = backup_folder
         else:
             try:
+                # The backup holds config.php (DB password) and user files: keep it
+                # private to root while copying and afterwards.
+                os.makedirs(backup_folder, mode=0o700)
                 subprocess.run(['rsync', '-r', *exclude_args, source_path, backup_folder], check=True)
+                os.chmod(backup_folder, 0o700)
                 size = sum(
                     os.path.getsize(os.path.join(root, file))
                     for root, _, files in os.walk(backup_folder)
@@ -138,6 +142,9 @@ class MoodleBackupManager:
                 self.backup_folder = backup_folder
             except subprocess.CalledProcessError as e:
                 logging.error(f"Backup failed: {e.stderr}")
+                success = False
+            except OSError as e:
+                logging.error(f"Backup failed: {e}")
                 success = False
 
         self.runtime_backup = int(time.time() - start)
@@ -177,7 +184,10 @@ class MoodleBackupManager:
                 logging.info(f"[Dry Run] Would run: {' '.join(dump_args)} (with MYSQL_PWD set)")
                 time.sleep(10)
             else:
-                with open(dump_file, "w") as dump:
+                # The dump contains every user record and password hash: 0600.
+                fd = os.open(dump_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w") as dump:
                     result = subprocess.run(dump_args, stdout=dump, stderr=subprocess.PIPE, text=True, check=True, env=dump_env)
                     sanitized_stderr = _sanitize_db_output(result.stderr, dbpass)
                     if sanitized_stderr:

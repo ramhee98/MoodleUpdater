@@ -30,6 +30,31 @@ def read_text_file(file_path):
         sys.exit(1)
 
 
+def acquire_instance_lock(folder, moodle):
+    """Take a per-instance lock so two concurrent moodle_updater.py runs can't
+    clobber each other's backups, dumps, or git clones for the same Moodle
+    instance. The lock file lives in the backup folder; it is released when the
+    returned file object is closed or the process ends. Aborts if it is held."""
+    lock_path = os.path.join(folder, f".moodle_updater_{moodle}.lock")
+    # Open without truncating: the PID inside belongs to whoever holds the lock.
+    lock_fp = os.fdopen(os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600), "r+")
+    try:
+        fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        if e.errno in (errno.EAGAIN, errno.EACCES):
+            holder = lock_fp.read().strip() or "unknown"
+            logging.error(
+                f"Another moodle_updater.py run (PID {holder}) is already in progress for "
+                f"instance '{moodle}' (lock file: {lock_path}). Aborting."
+            )
+            sys.exit(1)
+        raise
+    lock_fp.truncate(0)
+    lock_fp.write(f"{os.getpid()}\n")
+    lock_fp.flush()
+    return lock_fp
+
+
 def prompt_db_password(prompt):
     """Ask for the DB password without echoing it to the terminal."""
     return getpass.getpass(prompt).strip()
@@ -114,25 +139,9 @@ def main():
         non_interactive=non_interactive,
     )
 
-    # Acquire a per-instance lock so two concurrent moodle_updater.py runs
-    # can't clobber each other's backups, dumps, or git clones for the same
-    # Moodle instance. The lock file is kept under the configured backup
-    # path so it survives across runs but is scoped to one instance.
+    # Keep the lock object referenced for the whole run; closing it releases the lock.
     os.makedirs(folder_backup_path, exist_ok=True)
-    lock_path = os.path.join(folder_backup_path, f".moodle_updater_{moodle}.lock")
-    lock_fp = open(lock_path, "w")
-    try:
-        fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError as e:
-        if e.errno in (errno.EAGAIN, errno.EACCES):
-            logging.error(
-                f"Another moodle_updater.py run is already in progress for "
-                f"instance '{moodle}' (lock file: {lock_path}). Aborting."
-            )
-            sys.exit(1)
-        raise
-    lock_fp.write(f"{os.getpid()}\n")
-    lock_fp.flush()
+    _instance_lock = acquire_instance_lock(folder_backup_path, moodle)
 
     restart_webserver_flag = resolve_option(args.restart_webserver, "Restart webserver automatically?", "y", non_interactive)
 

@@ -257,6 +257,7 @@ python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --res
 ### Logs and Outputs
 
 - Backups and dumps are timestamped for easy tracking.
+- Backup folders are created with mode `0700` and dumps with `0600`, because they contain `config.php` (with the DB password) and all user data. Only root can read them.
 - All errors are reported to the terminal, including failed database connections or file operations.
 
 ### Non-Interactive Mode

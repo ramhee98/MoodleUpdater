@@ -41,6 +41,19 @@ def resolve_db_tool(mariadb_name, mysql_name):
             return name
     return mysql_name
 
+def check_db_connection(dbname, dbuser, dbpass):
+    """Return (True, "") if dbname is reachable with these credentials, else
+    (False, sanitized error). The password goes through MYSQL_PWD, never argv,
+    where any local user could read it with ps. Raises FileNotFoundError if no
+    client tool is installed."""
+    result = subprocess.run(
+        [resolve_db_tool('mariadb-show', 'mysqlshow'), '-u', dbuser, dbname],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+        env={**os.environ, 'MYSQL_PWD': dbpass},
+    )
+    return result.returncode == 0, _sanitize_db_output(result.stderr, dbpass)
+
+
 class MoodleBackupManager:
     """Manages directory backups, database dumps, and Git clone operations for Moodle."""
 

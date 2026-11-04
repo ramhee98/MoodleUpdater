@@ -1,9 +1,9 @@
 # Standard Library
 import errno
 import fcntl
+import getpass
 import logging
 import os
-import subprocess
 import sys
 import time
 from functools import partial
@@ -11,7 +11,7 @@ from functools import partial
 # Modules
 from modules.application_setup import ApplicationSetup
 from modules.cli import parse_args, resolve_option
-from modules.moodle_backup import MoodleBackupManager, resolve_db_tool
+from modules.moodle_backup import MoodleBackupManager, check_db_connection
 from modules.config_manager import ConfigManager
 from modules.moodle_version import MoodleVersionChecker
 from modules.service_manager import ServiceManager
@@ -28,6 +28,32 @@ def read_text_file(file_path):
     except OSError as e:
         logging.error(f"Cannot read {file_path}: {e}")
         sys.exit(1)
+
+
+def prompt_db_password(prompt):
+    """Ask for the DB password without echoing it to the terminal."""
+    return getpass.getpass(prompt).strip()
+
+
+def ensure_db_connection(dbname, dbuser, dbpass, non_interactive, max_attempts=3):
+    """Check the DB credentials, re-prompting for the password interactively.
+    Returns the working password or aborts the run."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            ok, error = check_db_connection(dbname, dbuser, dbpass)
+        except FileNotFoundError:
+            logging.error("Neither mariadb-show nor mysqlshow found. Install the MariaDB/MySQL client tools.")
+            sys.exit(1)
+        if ok:
+            logging.info("Connection to DB established.")
+            return dbpass
+        logging.error(f"Connection to DB failed: {error}")
+        if non_interactive or attempt == max_attempts:
+            sys.exit(1)
+        dbpass = ""
+        while not dbpass:
+            dbpass = prompt_db_password("Please enter DB password again: ")
+    sys.exit(1)
 
 
 def main():
@@ -149,45 +175,25 @@ def main():
                     logging.error("read_db_from_config is False and --non-interactive is set: "
                                   "provide the DB password in the MYSQL_PWD environment variable.")
                     sys.exit(1)
-            while not dbpass.strip():
-                dbpass = input("Please enter DB password: ").strip()
+            while not dbpass:
+                dbpass = prompt_db_password("Please enter DB password: ")
         else:
             cfg = ConfigManager.read_moodle_config(configphppath)
             dbname = cfg.get('dbname')
             dbuser = cfg.get('dbuser')
             dbpass = cfg.get('dbpass')
-      
+            missing = [key for key in ('dbname', 'dbuser', 'dbpass') if cfg.get(key) is None]
+            if missing:
+                logging.error(f"Could not read {', '.join(missing)} from {configphppath}. "
+                              "Set read_db_from_config = False to configure the database in config.ini instead.")
+                sys.exit(1)
+
         restart_database_flag = resolve_option(args.restart_database, "Restart database before dump?", "n", non_interactive)
 
         if dry_run:
             logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}")
-            result = "returncode=0"
         else:
-            show_tool = resolve_db_tool('mariadb-show', 'mysqlshow')
-            try:
-                subprocess.run(
-                    [show_tool, '-u', dbuser, f'-p{dbpass}', dbname],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=True
-                )
-                logging.info("Connection to DB established.")
-            except FileNotFoundError:
-                logging.error("Neither mariadb-show nor mysqlshow found. Install the MariaDB/MySQL client tools.")
-                sys.exit(1)
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Connection to DB failed: {e.stderr}")
-                while not dbpass.strip():
-                    dbpass = input("Please enter DB password again: ").strip()
-                    if dbpass:
-                        break
-                try:
-                    subprocess.run(
-                        [show_tool, '-u', dbuser, f'-p{dbpass}', dbname],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=True
-                    )
-                    logging.info("Connection to DB established.")
-                except subprocess.CalledProcessError as e:
-                    logging.error(f"Connection to DB failed: {e.stderr}")
-                    sys.exit(1)
+            dbpass = ensure_db_connection(dbname, dbuser, dbpass, non_interactive)
 
     # Git clone process
     if git_clone:

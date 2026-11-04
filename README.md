@@ -106,7 +106,8 @@
    - **read_db_from_config** Read database name, username and password from `config.php`, default is True
    - **db_name**: Name of the Moodle database, ignored if read_db_from_config is True.
    - **db_user**: Database username used for DB dump, ignored if read_db_from_config is True.
-   - **Note**: When `read_db_from_config` is set to False, the script will use the credentials specified in `config.ini` and prompt for the database password during execution.
+   - **Note**: When `read_db_from_config` is set to False, the script uses the credentials in `config.ini` and asks for the database password while it runs (the input is not shown). In `--non-interactive` mode it reads the password from the `MYSQL_PWD` environment variable instead.
+   - The database connection is checked before any work starts. If the check fails in interactive mode, you can enter the password again, up to 3 attempts in total. The password is passed to the MySQL/MariaDB tools through the `MYSQL_PWD` environment variable, never on the command line.
    - **`log_to_console`**: Enable or disable logging to the console.
    - **`log_to_file`**: Enable or disable logging to a file.
    - **`log_file_path`**: Specify the file path where logs should be saved (only if `log_to_file` is enabled).

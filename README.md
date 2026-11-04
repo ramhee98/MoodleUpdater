@@ -306,6 +306,18 @@ Exit codes:
 
 The script optimizes runtime by leveraging Python's threading module. Tasks like backups and Git operations run in parallel, significantly reducing execution time.
 
+## Development
+
+The tests use pytest and need `git` and `rsync`; they never touch a real Moodle install, database or service.
+
+```bash
+pip install pytest ruff requests
+ruff check .
+pytest tests
+```
+
+GitHub Actions runs both on every push and pull request (`.github/workflows/ci.yml`).
+
 ## Contribution
 
 Contributions are welcome! Please fork the repository, create a new branch for your changes, and submit a pull request.

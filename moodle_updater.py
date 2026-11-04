@@ -11,7 +11,7 @@ from functools import partial
 # Modules
 from modules.application_setup import ApplicationSetup
 from modules.cli import parse_args, resolve_option
-from modules.moodle_backup import MoodleBackupManager, check_db_connection
+from modules.moodle_backup import MoodleBackupManager, check_db_connection, is_within
 from modules.config_manager import ConfigManager
 from modules.moodle_version import MoodleVersionChecker
 from modules.service_manager import ServiceManager
@@ -140,6 +140,19 @@ def main():
         folder_backup_path = pwd
     if not folder_backup_path.endswith("/"):
         folder_backup_path = os.path.join(folder_backup_path, '')
+    db_dump_path = config.get('settings', 'db_dump_path', fallback='pwd')
+    if db_dump_path in ["pwd", ""]:
+        db_dump_path = pwd
+
+    # The git clone replaces the Moodle code directory and a partial backup copies
+    # it: backups or dumps stored inside it would be deleted or copied into themselves.
+    if dir_backup or git_clone:
+        for setting, location, used in (("folder_backup_path", folder_backup_path, dir_backup),
+                                         ("db_dump_path", db_dump_path, db_dump)):
+            if used and is_within(location, full_path):
+                logging.error(f"{setting} ({location}) is inside the Moodle code directory {full_path}. "
+                              "Choose a location outside of it.")
+                sys.exit(1)
 
     backup_manager = MoodleBackupManager(
         path=path,
@@ -148,6 +161,7 @@ def main():
         dry_run=dry_run,
         non_interactive=non_interactive,
         php_cli_user=config.get('settings', 'php_cli_user', fallback='').strip(),
+        db_dump_path=db_dump_path if db_dump else None,
     )
 
     # Keep the lock object referenced for the whole run; closing it releases the lock.
@@ -172,9 +186,6 @@ def main():
 
     # Database dump process
     if db_dump:
-        db_dump_path = config.get('settings', 'db_dump_path', fallback='pwd')
-        if db_dump_path in ["pwd", ""]:
-            db_dump_path = pwd
         read_db_from_config = ConfigManager.get_bool(config, 'database', 'read_db_from_config', fallback=True)
         dbpass = ""
 

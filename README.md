@@ -106,6 +106,7 @@
    - **php_cli_user**: Optional. When set (e.g. `www-data`) and the script runs as root, Moodle's PHP CLI scripts (`upgrade.php`, `checks.php`, `maintenance.php`) run as this user through `runuser`, as Moodle recommends, so core and plugin upgrade code does not run with root privileges. Leave it empty to keep running them as root. Before you switch, make sure `moodledata` is writable by that user.
    - **folder_backup_path**: Custom directory where backup files will be stored. If left blank, the current working directory will be used.
    - **db_dump_path**: Custom directory where DB dumps will be stored. If left blank, the current working directory will be used.
+   - Neither location may be inside the Moodle code folder (`path`/`moodle`), because the git clone replaces that folder. The script refuses to start if it is. If they are inside `path`, a full backup skips earlier backups, dumps and the lock file instead of copying them again.
    - **read_db_from_config** Read database name, username and password from `config.php`, default is True
    - **db_name**: Name of the Moodle database, ignored if read_db_from_config is True.
    - **db_user**: Database username used for DB dump, ignored if read_db_from_config is True.

@@ -54,6 +54,12 @@ def check_db_connection(dbname, dbuser, dbpass):
     return result.returncode == 0, _sanitize_db_output(result.stderr, dbpass)
 
 
+def is_within(path, parent):
+    """True if path is parent itself or lies below it (symlinks resolved)."""
+    path, parent = os.path.realpath(path), os.path.realpath(parent)
+    return path == parent or path.startswith(parent.rstrip(os.sep) + os.sep)
+
+
 def _tree_size(path):
     """Total size in bytes of the files below path. Symlinks count as themselves
     (lstat), so dangling links don't raise; unreadable entries are skipped."""
@@ -70,7 +76,8 @@ def _tree_size(path):
 class MoodleBackupManager:
     """Manages directory backups, database dumps, and Git clone operations for Moodle."""
 
-    def __init__(self, path, moodle, folder_backup_path, dry_run=False, non_interactive=False, php_cli_user=None):
+    def __init__(self, path, moodle, folder_backup_path, dry_run=False, non_interactive=False, php_cli_user=None,
+                 db_dump_path=None):
         self.path = path
         self.moodle = moodle
         self.folder_backup_path = folder_backup_path
@@ -78,6 +85,8 @@ class MoodleBackupManager:
         self.non_interactive = non_interactive
         # Run Moodle's PHP CLI scripts as this user instead of root (None: current user)
         self.php_cli_user = php_cli_user or None
+        # Where this run writes its dump; kept out of full backups
+        self.db_dump_path = db_dump_path
         # Folder written by dir_backup() in this run (None until it succeeds)
         self.backup_folder = None
         self.runtime_backup = None
@@ -134,6 +143,7 @@ class MoodleBackupManager:
             '--exclude', 'moodledata/sessions',
             '--exclude', 'moodledata/temp',
             '--exclude', 'moodledata/trashdir',
+            *self._own_output_excludes(source_path),
         ] if full_backup else []
 
         logging.info(f"Starting {backup_type} backup from {source_path} to {backup_folder}")
@@ -162,6 +172,24 @@ class MoodleBackupManager:
 
         self.runtime_backup = int(time.time() - start)
         return success
+
+    def _own_output_excludes(self, source_path):
+        """rsync excludes for this tool's own backups, dumps and lock file when they
+        live inside the backup source, so a full backup never copies earlier
+        backups or the dump that is being written in parallel."""
+        excludes = []
+        outputs = [(self.folder_backup_path, [f"{self.moodle}_bak_*", f".moodle_updater_{self.moodle}.lock"])]
+        if self.db_dump_path:
+            outputs.append((self.db_dump_path, ["*.sql"]))
+        for location, patterns in outputs:
+            if not is_within(location, source_path):
+                continue
+            rel = os.path.relpath(os.path.realpath(location), os.path.realpath(source_path))
+            prefix = "/" if rel == "." else f"/{rel}/"
+            for pattern in patterns:
+                # A leading "/" anchors the pattern at the root of the transfer.
+                excludes += ['--exclude', prefix + pattern]
+        return excludes
 
     def db_dump(self, dbname, dbuser, dbpass, verbose, db_dump_path):
         """Perform database dump using mysqldump with progress monitoring. Returns True on success."""

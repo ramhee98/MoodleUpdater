@@ -51,6 +51,8 @@ class MoodleBackupManager:
         self.folder_backup_path = folder_backup_path
         self.dry_run = dry_run
         self.non_interactive = non_interactive
+        # Folder written by dir_backup() in this run (None until it succeeds)
+        self.backup_folder = None
         self.runtime_backup = None
         self.runtime_dump = None
         self.runtime_clone = None
@@ -88,8 +90,9 @@ class MoodleBackupManager:
     PLUGIN_WALK_SKIP_DIRS = {'.git', 'node_modules', 'vendor'}
 
     def dir_backup(self, full_backup):
-        """Handle directory backups using rsync."""
+        """Handle directory backups using rsync. Returns True on success."""
         start = time.time()
+        success = True
 
         backup_type = "full" if full_backup else "partial"
         source_path = os.path.join(self.path, '') if full_backup else os.path.join(self.path, self.moodle, '')
@@ -110,6 +113,7 @@ class MoodleBackupManager:
 
         if self.dry_run:
             logging.info(f"[Dry Run] Would run: rsync {' '.join(exclude_args)} {source_path} {backup_folder}")
+            self.backup_folder = backup_folder
         else:
             try:
                 subprocess.run(['rsync', '-r', *exclude_args, source_path, backup_folder], check=True)
@@ -119,13 +123,16 @@ class MoodleBackupManager:
                     for file in files
                 )
                 logging.info(f"Backup completed and saved in {backup_folder} - ({size / (1024 * 1024 * 1024):.2f} GB)")
+                self.backup_folder = backup_folder
             except subprocess.CalledProcessError as e:
                 logging.error(f"Backup failed: {e.stderr}")
+                success = False
 
         self.runtime_backup = int(time.time() - start)
+        return success
 
     def db_dump(self, dbname, dbuser, dbpass, verbose, db_dump_path):
-        """Perform database dump using mysqldump with progress monitoring."""
+        """Perform database dump using mysqldump with progress monitoring. Returns True on success."""
         start = time.time()
 
         dump_file = os.path.join(
@@ -166,18 +173,19 @@ class MoodleBackupManager:
                     logging.info(f"Database dump saved in {dump_file} - ({os.path.getsize(dump_file) / (1024 * 1024 * 1024):.2f} GB)")
         except (IOError, OSError) as file_error:
             logging.error(f"Failed to open {dump_file} for writing: {file_error}")
-            return
+            return False
         except subprocess.CalledProcessError as e:
             logging.error(f"Database dump failed: {_sanitize_db_output(e.stderr, dbpass)}")
-            return
+            return False
         finally:
             # Stop monitoring
             monitor.stop_monitoring()
 
         self.runtime_dump = int(time.time() - start)
+        return True
 
     def git_clone(self, config_php, repository, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup=False, full_backup=False):
-        """Clone a git repository."""
+        """Clone a git repository. Returns True on success."""
         start = time.time()
         clone_path = os.path.join(self.path, self.moodle)
 
@@ -189,8 +197,10 @@ class MoodleBackupManager:
                     shutil.rmtree(clone_path)
                 except PermissionError:
                     logging.error(f"Permission denied while removing {clone_path}. Try running with elevated privileges.")
+                    return False
                 except Exception as e:
                     logging.error(f"Error removing directory {clone_path}: {e}")
+                    return False
 
         if self.dry_run:
             logging.info(f"[Dry Run] Would clone repository: {repository} to {self.path}")
@@ -200,10 +210,12 @@ class MoodleBackupManager:
                 subprocess.run(['git', 'clone', repository, clone_path], check=True)
             except subprocess.CalledProcessError as e:
                 logging.error(f"Git clone failed: {e.stderr}")
+                return False
             try:
                 subprocess.run(['git', '-C', clone_path, 'checkout', branch], check=True)
             except subprocess.CalledProcessError as e:
                 logging.error(f"Git checkout failed: {e.stderr}")
+                return False
 
         if sync_submodules:
             if self.dry_run:
@@ -259,6 +271,7 @@ class MoodleBackupManager:
                         subprocess.run(['cp', '-r', os.path.join(backup_folder, submodule), os.path.join(clone_path, os.path.dirname(submodule))], check=True)
                 except subprocess.CalledProcessError as e:
                     logging.error(f"Restoring submodules from backup failed: {e.stderr}")
+                    return False
 
         if self.dry_run:
             logging.info(f"[Dry Run] Would create config.php in {clone_path}")
@@ -270,16 +283,21 @@ class MoodleBackupManager:
                 subprocess.run(['chown', f'{chown_user}:{chown_group}', clone_path, '-R'], check=True)
             except subprocess.CalledProcessError as e:
                 logging.error(f"Setting folder ownership failed: {e.stderr}")
+                return False
 
         logging.info("Finished git clone process")
         self.runtime_clone = int(time.time() - start)
         logging.info(f"Git clone completed in {self.runtime_clone} seconds.")
+        return True
 
     def dir_backup_and_git_clone(self, config_php, full_backup, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup=False):
-        """Perform directory backup followed by git clone."""
+        """Perform directory backup followed by git clone. The clone replaces the
+        existing code, so it only runs when the backup succeeded."""
         logging.info("Starting directory backup and git clone process.")
-        self.dir_backup(full_backup)
-        self.git_clone(config_php, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup, full_backup)
+        if not self.dir_backup(full_backup):
+            logging.error("Skipping git clone because the directory backup failed. The existing Moodle code was left untouched.")
+            return False
+        return self.git_clone(config_php, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup, full_backup)
 
     def _find_code_root(self, moodle_root):
         """Return the dir holding Moodle's code tree.
@@ -301,7 +319,8 @@ class MoodleBackupManager:
         """Copy third-party plugins present in the latest directory backup but missing from the new clone.
 
         selection_mode "auto" restores every missing plugin; "manual" prompts y/n
-        for each discovered plugin before copying it.
+        for each discovered plugin before copying it. Returns True unless a plugin
+        could not be restored.
         """
         start = time.time()
         logging.info("Starting plugin restore from backup.")
@@ -316,7 +335,7 @@ class MoodleBackupManager:
         candidates = glob.glob(pattern)
         if not candidates:
             logging.error(f"No directory backup found matching {pattern}; cannot restore plugins.")
-            return
+            return False
         backup_folder = max(candidates, key=os.path.getmtime)
 
         # In a full backup the moodle source lives under <backup>/<moodle>/.
@@ -388,7 +407,7 @@ class MoodleBackupManager:
         if not plugins_to_restore:
             logging.info("No missing third-party plugins detected in backup.")
             self.runtime_restore_plugins = int(time.time() - start)
-            return
+            return True
 
         # In manual mode let the user pick which discovered plugins to restore.
         if selection_mode == "manual":
@@ -404,8 +423,9 @@ class MoodleBackupManager:
             if not plugins_to_restore:
                 logging.info("No plugins selected for restore.")
                 self.runtime_restore_plugins = int(time.time() - start)
-                return
+                return True
 
+        success = True
         if self.dry_run:
             for rel_path, src, dst in plugins_to_restore:
                 logging.info(f"[Dry Run] Would copy plugin {rel_path} from {src} to {dst}")
@@ -419,18 +439,21 @@ class MoodleBackupManager:
                     self.restored_plugins.append(rel_path)
                 except subprocess.CalledProcessError as e:
                     logging.error(f"Failed to restore plugin {rel_path}: {e.stderr}")
+                    success = False
 
             if self.restored_plugins:
                 try:
                     subprocess.run(['chown', f'{chown_user}:{chown_group}', clone_path, '-R'], check=True)
                 except subprocess.CalledProcessError as e:
                     logging.error(f"Setting ownership after plugin restore failed: {e.stderr}")
+                    success = False
 
         self.runtime_restore_plugins = int(time.time() - start)
         logging.info(f"Plugin restore completed in {self.runtime_restore_plugins} seconds. Restored: {len(self.restored_plugins)}, already present: {len(self.skipped_plugins)}.")
+        return success
 
     def moodle_cli_upgrade(self, moodle_maintenance_mode_flag, force_continue):
-        """Upgrading Moodle instance via admin/cli/upgrade.php with pre/post system checks"""
+        """Upgrading Moodle instance via admin/cli/upgrade.php with pre/post system checks. Returns True on success."""
         start = time.time()
         logging.info("Starting Moodle upgrade via CLI...")
         moodle_upgrade_script = os.path.join(self.path, self.moodle, "admin/cli/upgrade.php")
@@ -529,6 +552,7 @@ class MoodleBackupManager:
 
         logging.info("Finished Moodle upgrade via CLI")
         self.runtime_cliupgrade = int(time.time() - start)
+        return not self.upgrade_failed
 
     def moodle_maintenance_mode(self, enable: bool):
         """Enable or disable Moodle maintenance mode."""

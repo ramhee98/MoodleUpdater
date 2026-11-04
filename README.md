@@ -272,6 +272,21 @@ Example for automated updates:
 python3 moodle_updater.py --non-interactive --directory-backup --db-dump --git-clone --moodle-cli-upgrade --restart-webserver
 ```
 
+### Failure Handling and Exit Codes
+
+Each step reports whether it succeeded, and steps that depend on a failed step are skipped:
+
+- If the directory backup fails, the git clone does not run, so the existing Moodle code is left untouched.
+- If the directory backup, database dump, git clone or plugin restore fails, the Moodle CLI upgrade is skipped, because the upgrade changes the database schema and cannot be undone.
+- Unexpected errors in background threads are written to the log with a traceback and count as failures.
+- A `FAILED STEPS` summary is logged at the end of the run.
+
+Exit codes:
+
+- `0`: every selected step succeeded (failed submodule updates are reported as warnings only)
+- `1`: at least one step failed or was skipped because of an earlier failure, or the run was aborted
+- `2`: invalid command-line options
+
 ## Multithreading Efficiency
 
 The script optimizes runtime by leveraging Python's threading module. Tasks like backups and Git operations run in parallel, significantly reducing execution time.

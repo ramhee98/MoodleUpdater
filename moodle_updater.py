@@ -5,8 +5,8 @@ import logging
 import os
 import subprocess
 import sys
-import threading
 import time
+from functools import partial
 
 # Modules
 from modules.application_setup import ApplicationSetup
@@ -15,6 +15,7 @@ from modules.moodle_backup import MoodleBackupManager, resolve_db_tool
 from modules.config_manager import ConfigManager
 from modules.moodle_version import MoodleVersionChecker
 from modules.service_manager import ServiceManager
+from modules.steps import run_step, run_steps_concurrently
 
 # Constants
 SEPARATOR = "-------------------------------------------------------------------------"
@@ -41,7 +42,6 @@ def main():
     path = setup.path
     full_path = setup.full_path
     configphppath = setup.configphppath
-    multithreading = False
     chown_user = config.get('settings', 'chown_user', fallback="www-data")
     chown_group = config.get('settings', 'chown_group', fallback="www-data")
 
@@ -289,66 +289,55 @@ def main():
         service_manager.restart_database("restart")
         time.sleep(2) # Pause to ensure the DB is fully ready
 
-    # Handle multithreading if multiple operations were selected
-    if dir_backup and db_dump and git_clone:
-        multithreading = True
+    # Build independent lanes of work. Backup and clone share a lane because the
+    # clone replaces the code the backup protects; the dump runs alongside.
+    lanes = []
+    if dir_backup and git_clone:
+        lanes.append(("Directory backup and git clone", partial(
+            backup_manager.dir_backup_and_git_clone, configphp, full_backup, repo, branch,
+            sync_submodules, chown_user, chown_group, restore_submodules_from_backup)))
+    elif dir_backup:
+        lanes.append(("Directory backup", partial(backup_manager.dir_backup, full_backup)))
+    elif git_clone:
+        lanes.append(("Git clone", partial(
+            backup_manager.git_clone, configphp, repo, branch, sync_submodules,
+            chown_user, chown_group, restore_submodules_from_backup)))
+    if db_dump:
+        lanes.append(("Database dump", partial(backup_manager.db_dump, dbname, dbuser, dbpass, verbose, db_dump_path)))
 
-        t_backup_clone = threading.Thread(
-            target=backup_manager.dir_backup_and_git_clone,
-            args=(configphp, full_backup, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup,)
-        )
-        t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
-
-        logging.info("Starting directory backup, git clone, and database dump (multithreaded).")
-        t_backup_clone.start()
-        t_dump.start()
-        t_backup_clone.join()
-        t_dump.join()
-    elif dir_backup and db_dump:
-        multithreading = True
-
-        t_backup = threading.Thread(target=backup_manager.dir_backup, args=(full_backup,))
-        t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
-
-        logging.info("Starting directory backup and database dump (multithreaded).")
-        t_backup.start()
-        t_dump.start()
-        t_backup.join()
-        t_dump.join()
-    elif db_dump and git_clone:
-        multithreading = True
-
-        t_dump = threading.Thread(target=backup_manager.db_dump, args=(dbname, dbuser, dbpass, verbose, db_dump_path,))
-        t_clone = threading.Thread(target=backup_manager.git_clone, args=(configphp, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup,))
-
-        logging.info("Starting database dump and git clone (multithreaded).")
-        t_dump.start()
-        t_clone.start()
-        t_dump.join()
-        t_clone.join()
+    multithreading = len(lanes) > 1
+    if multithreading:
+        logging.info(f"Starting {' and '.join(name.lower() for name, _ in lanes)} (multithreaded).")
+        results = run_steps_concurrently(lanes)
     else:
-        if dir_backup:
-            logging.info("Starting directory backup")
-            backup_manager.dir_backup(full_backup,)
-
-        if db_dump:
-            logging.info("Starting database dump")
-            backup_manager.db_dump(dbname, dbuser, dbpass, verbose, db_dump_path)
-
-        if git_clone:
-            logging.info("Starting git clone")
-            backup_manager.git_clone(configphp, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup)
+        results = {}
+        for name, func in lanes:
+            logging.info(f"Starting {name.lower()}")
+            results[name] = run_step(name, func)
+    failed_steps = [name for name, ok in results.items() if not ok]
 
     if restore_plugins_from_backup and git_clone:
-        backup_manager.restore_plugins(chown_user, chown_group, full_backup=full_backup if dir_backup else False, selection_mode=restore_plugins_mode)
+        if failed_steps:
+            logging.error(f"Skipping plugin restore because a previous step failed: {', '.join(failed_steps)}.")
+        elif not run_step("Plugin restore", backup_manager.restore_plugins, chown_user, chown_group,
+                          full_backup=full_backup if dir_backup else False, selection_mode=restore_plugins_mode):
+            failed_steps.append("Plugin restore")
 
     if restart_webserver_flag:
         service_manager.restart_webserver("start")
 
     if moodle_cli_upgrade:
-        backup_manager.moodle_cli_upgrade(moodle_maintenance_mode_flag, force_continue)
-        if restart_webserver_flag:
-            service_manager.restart_webserver("restart")
+        if failed_steps:
+            # The upgrade changes the database schema and cannot be undone; never
+            # run it without the backups and code it depends on.
+            logging.error(f"Skipping Moodle CLI upgrade because a previous step failed: {', '.join(failed_steps)}. "
+                          "Fix the problem and re-run with --moodle-cli-upgrade.")
+            failed_steps.append("Moodle CLI upgrade (skipped)")
+        else:
+            if not run_step("Moodle CLI upgrade", backup_manager.moodle_cli_upgrade, moodle_maintenance_mode_flag, force_continue):
+                failed_steps.append("Moodle CLI upgrade")
+            if restart_webserver_flag:
+                service_manager.restart_webserver("restart")
 
     runtime = int(time.time() - start_time)  # Convert to integer seconds
     runtime_backup = backup_manager.runtime_backup
@@ -408,6 +397,10 @@ def main():
         for error in backup_manager.upgrade_error_details:
             logging.warning(f"  - {error}")
 
+    if failed_steps:
+        logging.info(SEPARATOR)
+        logging.error(f"FAILED STEPS: {', '.join(failed_steps)}")
+
     logging.info(SEPARATOR)
     logging.info("Finished at %s", time.strftime("%Y-%m-%d %H:%M:%S"))
 
@@ -415,6 +408,8 @@ def main():
         logging.info(SEPARATOR)
         logging.info("[Dry Run] was enabled!")
         logging.info(SEPARATOR)
+
+    sys.exit(1 if failed_steps else 0)
 
 if __name__ == "__main__":
     main()

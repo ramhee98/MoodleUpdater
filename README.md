@@ -300,6 +300,7 @@ Each step reports whether it succeeded, and steps that depend on a failed step a
 - Stopping or starting the webserver, restarting the database, and enabling or disabling maintenance mode all count as steps: a failure makes the run exit with code 1.
 - Unexpected errors in background threads are written to the log with a traceback and count as failures.
 - With `--restart-webserver`, the webserver is always started again, also after an error or Ctrl-C (even one during the stop). Maintenance mode is always disabled again after the CLI upgrade, even if the upgrade crashes.
+- In interactive mode, if a step failed, you are asked whether to start the webserver anyway. Answer `n` to keep the site offline while you investigate, then start it yourself with `systemctl start apache2` (or `nginx`). Any other answer, no answer within 5 minutes, Cancel or Ctrl-C starts it. Non-interactive runs always start it without asking.
 - If the pre-check or the CLI upgrade fails after the new code is already in place, maintenance mode is disabled and the webserver is started again. The site then runs the new code against the old or partially upgraded database until you fix the problem and re-run with `--moodle-cli-upgrade`, or restore the backup and dump.
 - Only one run per Moodle instance at a time: a lock keyed by the canonical path of the Moodle code folder is taken in `/run/moodle_updater` (root-only; override with the `MOODLE_UPDATER_LOCK_DIR` environment variable).
 - A `FAILED STEPS` summary is logged at the end of the run.

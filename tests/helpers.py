@@ -207,8 +207,9 @@ class Site:
                   f"log_file_path = {os.path.join(self.app, 'moodle_updater.log')}", "log_level = INFO"]
         _write(os.path.join(self.app, "config.ini"), "\n".join(lines) + "\n")
 
-    def run(self, *args, timeout=120, **fake_env):
-        """Run the real CLI (root check patched out) and return the CompletedProcess."""
+    def run(self, *args, timeout=120, input=None, **fake_env):
+        """Run the real CLI (root check patched out) and return the CompletedProcess.
+        input answers the interactive prompts; without it stdin is closed."""
         env = {k: v for k, v in os.environ.items() if not k.startswith(("FAKE_", "GIT_"))}
         env.update({
             "PATH": self.fakebin + os.pathsep + os.environ["PATH"],
@@ -226,7 +227,8 @@ class Site:
                    "sys.argv = ['moodle_updater.py'] + sys.argv[1:]\n"
                    "runpy.run_path('moodle_updater.py', run_name='__main__')\n")
         return subprocess.run([sys.executable, "-c", wrapper, *args], cwd=self.app, env=env,
-                              stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
+                              **({"input": input} if input is not None else {"stdin": subprocess.DEVNULL}),
+                              capture_output=True, text=True, timeout=timeout)
 
     def calls(self, tool=None):
         with open(self.fake_log) as f:

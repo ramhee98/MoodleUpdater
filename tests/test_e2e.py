@@ -131,6 +131,38 @@ def test_failed_database_restart_changes_nothing(site):
     assert not site.calls("mariadb-dump")
 
 
+INTERACTIVE_STEPS = [s for s in ALL_STEPS if s != "--non-interactive"]
+# Answers, in order: self-update n, correct directory y, verbose n, full backup n,
+# restart database n, checkout y, copy config.php y, sync submodules y,
+# restore plugins n, force continue n, confirm installation y.
+SETUP_ANSWERS = "n\ny\nn\nn\nn\ny\ny\ny\nn\nn\ny\n"
+
+
+@pytest.mark.parametrize("answer, started", [("n\n", False), ("y\n", True), ("", True)])
+def test_failed_run_asks_before_starting_webserver(site, answer, started):
+    # The maintenance-mode failure skips the upgrade after the new code is in place.
+    result = site.run(*INTERACTIVE_STEPS, FAKE_MAINT_ENABLE_RC=1, input=SETUP_ANSWERS + answer)
+    assert result.returncode == 1, _out(result)
+    assert "Start the webserver anyway?" in _out(result)
+    expected = ["stop", "start"] if started else ["stop"]
+    assert [c[1] for c in site.calls("systemctl")] == expected
+    assert ("left stopped as requested" in _out(result)) is not started
+
+
+def test_successful_interactive_run_starts_webserver_without_asking(site):
+    result = site.run(*INTERACTIVE_STEPS, input=SETUP_ANSWERS)
+    assert result.returncode == 0, _out(result)
+    assert "Start the webserver anyway?" not in _out(result)
+    assert [c[1] for c in site.calls("systemctl")] == ["stop", "start"]
+
+
+def test_failed_non_interactive_run_starts_webserver_without_asking(site):
+    result = site.run(*ALL_STEPS, FAKE_MAINT_ENABLE_RC=1)
+    assert result.returncode == 1, _out(result)
+    assert "Start the webserver anyway?" not in _out(result)
+    assert [c[1] for c in site.calls("systemctl")] == ["stop", "start"]
+
+
 def test_interrupted_stop_still_starts_webserver(site):
     # SIGINT arrives while systemctl stop runs: the start must still happen.
     result = site.run(*ALL_STEPS, FAKE_SIGINT_ON="stop")

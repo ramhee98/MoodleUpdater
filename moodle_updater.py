@@ -174,6 +174,29 @@ def log_run_summary(backup_manager, runtime, lanes_runtime=None):
             logging.warning(f"  - {error}")
 
 
+WEBSERVER_START_PROMPT_TIMEOUT = 300
+
+
+def confirm_webserver_start(failed_steps, non_interactive, confirm=None, timeout=WEBSERVER_START_PROMPT_TIMEOUT):
+    """After a failed run, ask whether to start the stopped webserver again. Only an
+    explicit "n" keeps it stopped: non-interactive runs, a timeout, closed stdin,
+    Cancel and Ctrl-C all start it, so an unattended run never leaves the site down."""
+    if not failed_steps or non_interactive:
+        return True
+    confirm = confirm or ApplicationSetup.confirm
+    logging.warning(f"The update had errors: {', '.join(failed_steps)}. The webserver is still stopped.")
+    try:
+        answer = confirm(f"Start the webserver anyway? (it starts automatically in {timeout}s)", "y", timeout)
+    except (KeyboardInterrupt, SystemExit):
+        logging.warning("No answer given; starting the webserver.")
+        return True
+    if answer is False:
+        logging.warning("Leaving the webserver stopped as requested. Start it manually once the problem is fixed "
+                        "(systemctl start apache2 or nginx).")
+        return False
+    return True
+
+
 def read_db_settings(config, configphppath, non_interactive):
     """Return (dbname, dbuser, dbpass, dbhost) from config.php or config.ini,
     asking for the password when needed. Aborts if they are incomplete."""
@@ -443,12 +466,14 @@ def main():
     # CLI upgrade and its checks are done, so no request ever reaches new code
     # running against an old or half-upgraded database.
     failed_steps = []
-    webserver_stop_attempted = False
+    webserver_stop_attempted = webserver_stopped = False
     multithreading, lanes_runtime = False, 0
     try:
         if restart_webserver_flag:
             webserver_stop_attempted = True
-            if not service_manager.restart_webserver("stop"):
+            if service_manager.restart_webserver("stop"):
+                webserver_stopped = True
+            else:
                 failed_steps.append("Stopping the webserver")
 
         if restart_database_flag and not failed_steps:
@@ -521,7 +546,10 @@ def main():
         # A clone that was prepared but never put in place (failure, Ctrl-C) holds a
         # copy of config.php: remove it.
         backup_manager.discard_clone()
-        if webserver_stop_attempted and not service_manager.restart_webserver("start"):
+        # A failed stop means the webserver may still be up: start it without asking.
+        start_webserver = webserver_stop_attempted and (
+            not webserver_stopped or confirm_webserver_start(failed_steps, non_interactive))
+        if start_webserver and not service_manager.restart_webserver("start"):
             failed_steps.append("Starting the webserver")
         if backup_manager.live_tree_missing:
             logging.critical(f"{full_path} is missing; see the CRITICAL message above for how to restore the previous code.")
@@ -530,6 +558,8 @@ def main():
     log_run_summary(backup_manager, runtime, lanes_runtime if multithreading else None)
     if backup_manager.maintenance_disable_failed:
         logging.critical("Moodle maintenance mode is still enabled; see the CRITICAL message above.")
+    if webserver_stop_attempted and not start_webserver:
+        logging.warning("The webserver was left stopped as requested.")
 
     if failed_steps:
         logging.info(SEPARATOR)

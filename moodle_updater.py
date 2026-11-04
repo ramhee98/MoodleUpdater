@@ -354,6 +354,7 @@ def main():
             lanes.append(("Database dump", partial(backup_manager.db_dump, dbname, dbuser, dbpass, verbose, db_dump_path, dbhost)))
 
         multithreading = len(lanes) > 1
+        lanes_start = time.time()
         if multithreading:
             logging.info(f"Starting {' and '.join(name.lower() for name, _ in lanes)} (multithreaded).")
             results = run_steps_concurrently(lanes)
@@ -362,6 +363,7 @@ def main():
             for name, func in lanes:
                 logging.info(f"Starting {name.lower()}")
                 results[name] = run_step(name, func)
+        lanes_runtime = int(time.time() - lanes_start)
         failed_steps.extend(name for name, ok in results.items() if not ok)
 
         if restore_plugins_from_backup and git_clone:
@@ -423,7 +425,9 @@ def main():
     # Log total runtime
     logging.info("Total execution time (excluding user input): %d seconds", runtime)
     if multithreading:
-        logging.info("Time saved with multithreading: %d seconds", runtime_backup + runtime_dump + runtime_clone + runtime_cliupgrade - runtime)
+        # Only backup, clone and dump run in parallel; compare their summed
+        # durations with the wall time of that phase alone.
+        logging.info("Time saved with multithreading: %d seconds", runtime_backup + runtime_dump + runtime_clone - lanes_runtime)
 
     # Log failed submodules summary at the end if any failed
     if backup_manager.failed_submodules:

@@ -576,60 +576,21 @@ class MoodleBackupManager:
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
                 )
 
-                # Track error indicators from output
-                error_lines = []
-                current_section = ""
+                # Current "== Section ==" header and the error lines seen so far
+                state = {'section': '', 'errors': []}
 
                 # Process both stdout and stderr as they come in
                 while True:
                     ready_to_read, _, _ = select.select([process.stdout, process.stderr], [], [], 0.1)
                     for stream in ready_to_read:
-                        line = stream.readline().strip()
-                        if not line:
-                            continue
-                        if stream is process.stdout:
-                            # Track section headers (Moodle uses == Section == format)
-                            if line.startswith('==') and line.endswith('=='):
-                                current_section = line.strip('= ')
-                                logging.info(line)
-                            # Moodle uses !! prefix for errors/warnings
-                            elif line.startswith('!!'):
-                                logging.error(f"{line}")
-                                error_detail = f"{current_section}: {line}" if current_section else line
-                                error_lines.append(error_detail)
-                            elif 'error' in line.lower() or 'failed' in line.lower():
-                                logging.warning(line)
-                                error_lines.append(line)
-                            else:
-                                logging.info(line)
-                        elif stream is process.stderr:
-                            logging.warning(line)
-                            error_lines.append(line)
+                        self._process_upgrade_line(stream.readline(), stream is process.stderr, state)
                     if process.poll() is not None:
                         break
 
                 # Drain any remaining output after process ends
                 for stream in [process.stdout, process.stderr]:
                     for line in stream:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        if stream is process.stdout:
-                            if line.startswith('==') and line.endswith('=='):
-                                current_section = line.strip('= ')
-                                logging.info(line)
-                            elif line.startswith('!!'):
-                                logging.error(f"{line}")
-                                error_detail = f"{current_section}: {line}" if current_section else line
-                                error_lines.append(error_detail)
-                            elif 'error' in line.lower() or 'failed' in line.lower():
-                                logging.warning(line)
-                                error_lines.append(line)
-                            else:
-                                logging.info(line)
-                        else:
-                            logging.warning(line)
-                            error_lines.append(line)
+                        self._process_upgrade_line(line, stream is process.stderr, state)
 
                 process.wait()
 
@@ -638,8 +599,7 @@ class MoodleBackupManager:
                     self.upgrade_failed = True
                     self.upgrade_error_details.append(f"Exit code: {process.returncode}")
                     # Add captured error lines to details
-                    for err_line in error_lines:
-                        self.upgrade_error_details.append(err_line)
+                    self.upgrade_error_details.extend(state['errors'])
 
             except Exception as e:
                 logging.error(f"Unexpected error during Moodle upgrade: {e}")
@@ -657,6 +617,30 @@ class MoodleBackupManager:
         logging.info("Finished Moodle upgrade via CLI")
         self.runtime_cliupgrade = int(time.time() - start)
         return not self.upgrade_failed
+
+    @staticmethod
+    def _process_upgrade_line(line, from_stderr, state):
+        """Log one line of upgrade.php output at a fitting level and collect the
+        lines that indicate errors in state['errors']."""
+        line = line.strip()
+        if not line:
+            return
+        if from_stderr:
+            logging.warning(line)
+            state['errors'].append(line)
+        # Track section headers (Moodle uses == Section == format)
+        elif line.startswith('==') and line.endswith('=='):
+            state['section'] = line.strip('= ')
+            logging.info(line)
+        # Moodle uses !! prefix for errors/warnings
+        elif line.startswith('!!'):
+            logging.error(line)
+            state['errors'].append(f"{state['section']}: {line}" if state['section'] else line)
+        elif 'error' in line.lower() or 'failed' in line.lower():
+            logging.warning(line)
+            state['errors'].append(line)
+        else:
+            logging.info(line)
 
     def moodle_maintenance_mode(self, enable: bool):
         """Enable or disable Moodle maintenance mode."""

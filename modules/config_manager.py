@@ -90,7 +90,8 @@ class ConfigManager:
 
     @staticmethod
     def check_config_differences(config_path, template_path):
-        """Check for differences between config.ini and config_template.ini."""
+        """Report settings that config_template.ini has but config.ini lacks, and
+        the reverse. Only keys are compared: customized values are expected."""
         logging.info("Checking configuration differences.")
         try:
             config = configparser.ConfigParser(interpolation=None)
@@ -98,15 +99,15 @@ class ConfigManager:
             config.read(config_path)
             template.read(template_path)
 
-            all_sections = set(config.sections()).union(set(template.sections()))
-            for section in all_sections:
-                config_items = set(config.items(section)) if config.has_section(section) else set()
-                template_items = set(template.items(section)) if template.has_section(section) else set()
-                added = template_items - config_items
-                removed = config_items - template_items
-
-                if added or removed:
-                    logging.warning(f"Differences in section {section}: Added={added}, Removed={removed}")
+            for section in sorted(set(config.sections()) | set(template.sections())):
+                config_keys = set(config.options(section)) if config.has_section(section) else set()
+                template_keys = set(template.options(section)) if template.has_section(section) else set()
+                missing = sorted(template_keys - config_keys)
+                unknown = sorted(config_keys - template_keys)
+                if missing:
+                    logging.warning(f"[{section}] settings missing from config.ini (see config_template.ini): {', '.join(missing)}")
+                if unknown:
+                    logging.warning(f"[{section}] settings in config.ini that the template does not know: {', '.join(unknown)}")
 
         except Exception as e:
             logging.error(f"Error while checking configuration differences: {e}")

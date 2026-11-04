@@ -61,3 +61,14 @@ def test_read_moodle_config_ignores_commented_lines(tmp_path):
 
 def test_read_moodle_config_missing_file(tmp_path):
     assert ConfigManager.read_moodle_config(str(tmp_path / "nope.php")) == {}
+
+
+def test_config_differences_compare_keys_only(tmp_path, caplog):
+    config = tmp_path / "config.ini"
+    template = tmp_path / "config_template.ini"
+    config.write_text("[settings]\nrepo = https://example.org/mine\nold_key = 1\n")
+    template.write_text("[settings]\nrepo = https://github.com/BLC-FHGR/moodle\nphp_cli_user =\n")
+    ConfigManager.check_config_differences(str(config), str(template))
+    assert "missing from config.ini (see config_template.ini): php_cli_user" in caplog.text
+    assert "does not know: old_key" in caplog.text
+    assert "repo" not in caplog.text

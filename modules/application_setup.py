@@ -26,16 +26,16 @@ class ApplicationSetup:
         
         # Configure logging
         self.config_manager.configure_logging()
-        
+
+        # Ensure config file exists before doing anything else with it
+        self.ensure_config_exists()
+
         # Perform initial setup tasks
         self.handle_auto_update()  # 🔹 This may modify config.ini
 
         # Ensure config is reloaded if changed
-        self.config_manager = ConfigManager(self.config_path, pwd)  
-        self.config = self.config_manager.config  
-
-        # Ensure config file exists
-        self.ensure_config_exists()
+        self.config_manager = ConfigManager(self.config_path, pwd)
+        self.config = self.config_manager.config
 
         # Load essential settings
         self.load_core_settings()

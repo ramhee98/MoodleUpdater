@@ -40,7 +40,7 @@
   - Optionally pull the latest version of the script from the Git repository on start.
   - Configurable through the `auto_update_script` setting in `config.ini`. When enabled, the script automatically checks for updates and pulls them if no local changes are detected.
   - If `auto_update_script` is disabled, the user is asked whether to pull MoodleUpdater from GitHub (not in `--non-interactive` mode).
-  - Compares `config.ini` with `config_template.ini` and highlights any differences to ensure proper configuration.
+  - Compares `config.ini` with `config_template.ini` and reports settings that are missing from `config.ini` (for example new options) or unknown to the template.
   - Retrieve and display detailed information about the current commit (time, author, summary).
   - Automatically checks and reports the branch name, current commit details, and updated commit details after pulling changes.
   - After successfully pulling updates from the Git repository, the script automatically restarts itself. This ensures that the latest changes take effect immediately, eliminating the need for manual restarts.

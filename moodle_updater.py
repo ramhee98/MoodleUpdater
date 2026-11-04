@@ -11,7 +11,8 @@ from functools import partial
 # Modules
 from modules.application_setup import ApplicationSetup
 from modules.cli import parse_args, resolve_option
-from modules.moodle_backup import MoodleBackupManager, check_db_connection, is_within
+from modules.db_tools import check_db_connection
+from modules.moodle_backup import MoodleBackupManager, is_within
 from modules.config_manager import ConfigManager
 from modules.moodle_version import MoodleVersionChecker
 from modules.service_manager import ServiceManager

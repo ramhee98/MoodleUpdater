@@ -3,7 +3,7 @@ import subprocess
 import pytest
 
 import moodle_updater
-from modules import moodle_backup
+from modules import db_tools
 
 
 def test_password_is_passed_via_env_not_argv(monkeypatch):
@@ -14,7 +14,7 @@ def test_password_is_passed_via_env_not_argv(monkeypatch):
         return subprocess.CompletedProcess(cmd, 1, "", "ERROR 1045: Access denied (using password: s3cret)")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    ok, error = moodle_backup.check_db_connection("moodle", "user", "s3cret")
+    ok, error = db_tools.check_db_connection("moodle", "user", "s3cret")
     assert ok is False
     assert not any("s3cret" in part for part in seen["cmd"])
     assert seen["env"]["MYSQL_PWD"] == "s3cret"
@@ -63,7 +63,7 @@ def test_db_host_is_passed_to_client(monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    assert moodle_backup.check_db_connection("moodle", "user", "pw", "db.example.org")[0] is True
+    assert db_tools.check_db_connection("moodle", "user", "pw", "db.example.org")[0] is True
     assert seen["cmd"][-3:] == ["-h", "db.example.org", "moodle"]
-    moodle_backup.check_db_connection("moodle", "user", "pw", "")
+    db_tools.check_db_connection("moodle", "user", "pw", "")
     assert "-h" not in seen["cmd"]

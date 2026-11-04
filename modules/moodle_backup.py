@@ -122,7 +122,7 @@ class MoodleBackupManager:
                 logging.info(f"Backup completed and saved in {backup_folder} - ({size / (1024 * 1024 * 1024):.2f} GB)")
                 self.backup_folder = backup_folder
             except subprocess.CalledProcessError as e:
-                logging.error(f"Backup failed: {e.stderr}")
+                logging.error(f"Backup failed: rsync exited with code {e.returncode}.")
                 success = False
             except OSError as e:
                 logging.error(f"Backup failed: {e}")
@@ -251,7 +251,7 @@ class MoodleBackupManager:
                 try:
                     subprocess.run(['git', 'submodule', 'sync'], cwd=staging_path, check=True)
                 except subprocess.CalledProcessError as e:
-                    logging.error(f"Git submodule sync failed: {e.stderr}")
+                    logging.error(f"Git submodule sync failed (exit code {e.returncode}).")
 
                 # Get list of submodules and update each individually
                 result = subprocess.run(['git', 'submodule', 'status'], cwd=staging_path, capture_output=True, text=True)
@@ -266,7 +266,7 @@ class MoodleBackupManager:
                         logging.info(f"Updated submodule {submodule_path} with remote tracking branch")
                         self.submodules_success += 1
                     except subprocess.CalledProcessError as e:
-                        logging.error(f"Git submodule update failed for {submodule_path}: {e.stderr}")
+                        logging.error(f"Git submodule update failed for {submodule_path} (exit code {e.returncode}).")
                         self.submodules_failed += 1
                         self.failed_submodules.append(submodule_path)
 
@@ -327,7 +327,7 @@ class MoodleBackupManager:
             try:
                 subprocess.run(['chown', f'{chown_user}:{chown_group}', clone_path, '-R'], check=True)
             except subprocess.CalledProcessError as e:
-                logging.error(f"Setting folder ownership failed: {e.stderr}")
+                logging.error(f"Setting folder ownership failed (exit code {e.returncode}).")
                 return False
 
         logging.info("Finished git clone process")
@@ -529,14 +529,14 @@ class MoodleBackupManager:
                     logging.info(f"Restored plugin {rel_path} from backup.")
                     self.restored_plugins.append(rel_path)
                 except subprocess.CalledProcessError as e:
-                    logging.error(f"Failed to restore plugin {rel_path}: {e.stderr}")
+                    logging.error(f"Failed to restore plugin {rel_path} (exit code {e.returncode}).")
                     success = False
 
             if self.restored_plugins:
                 try:
                     subprocess.run(['chown', f'{chown_user}:{chown_group}', clone_path, '-R'], check=True)
                 except subprocess.CalledProcessError as e:
-                    logging.error(f"Setting ownership after plugin restore failed: {e.stderr}")
+                    logging.error(f"Setting ownership after plugin restore failed (exit code {e.returncode}).")
                     success = False
 
         self.runtime_restore_plugins = int(time.time() - start)
@@ -655,7 +655,7 @@ class MoodleBackupManager:
                 subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 logging.info(f"Moodle maintenance mode {mode}d successfully.")
             except subprocess.CalledProcessError as e:
-                logging.error(f"Failed to {mode} maintenance mode: {e.stderr}")
+                logging.error(f"Failed to {mode} maintenance mode (exit code {e.returncode}): {(e.stderr or e.stdout or '').strip()}")
 
     def run_moodle_check(self, before_upgrade=True, force_continue=False):
         """Run Moodle system check before or after upgrades, logging results with appropriate log levels."""

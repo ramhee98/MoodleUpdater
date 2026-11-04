@@ -9,3 +9,6 @@ config.ini
 __pycache__/
 *.pyc
 *.pyo
+# Local audit/review notes (describe security issues and server details)
+AUDIT.md
+REVIEW.md

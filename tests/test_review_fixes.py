@@ -1,4 +1,4 @@
-"""Regression tests for findings of the independent review (REVIEW.md) that are
+"""Regression tests for review findings that are
 best exercised below the CLI: real rsync, git, subprocesses and fake DB clients."""
 import hashlib
 import http.server

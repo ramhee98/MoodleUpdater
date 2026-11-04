@@ -107,9 +107,10 @@
    - **folder_backup_path**: Custom directory where backup files will be stored. If left blank, the current working directory will be used.
    - **db_dump_path**: Custom directory where DB dumps will be stored. If left blank, the current working directory will be used.
    - Neither location may be inside the Moodle code folder (`path`/`moodle`), because the git clone replaces that folder. The script refuses to start if it is. If they are inside `path`, a full backup skips earlier backups, dumps and the lock file instead of copying them again.
-   - **read_db_from_config** Read database name, username and password from `config.php`, default is True
+   - **read_db_from_config**: Read the database host, name, username and password from `config.php`. Default is True. Single- and double-quoted values are both supported.
    - **db_name**: Name of the Moodle database, ignored if read_db_from_config is True.
    - **db_user**: Database username used for DB dump, ignored if read_db_from_config is True.
+   - **db_host**: Database host, ignored if read_db_from_config is True. Leave it empty to use the local server.
    - **Note**: When `read_db_from_config` is set to False, the script uses the credentials in `config.ini` and asks for the database password while it runs (the input is not shown). In `--non-interactive` mode it reads the password from the `MYSQL_PWD` environment variable instead.
    - The database connection is checked before any work starts. If the check fails in interactive mode, you can enter the password again, up to 3 attempts in total. The password is passed to the MySQL/MariaDB tools through the `MYSQL_PWD` environment variable, never on the command line.
    - **`log_to_console`**: Enable or disable logging to the console.
@@ -143,6 +144,7 @@
    read_db_from_config = True
    db_name = moodle
    db_user = root
+   db_host =
    [logging]
    log_to_console = True
    log_to_file = True

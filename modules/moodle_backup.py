@@ -41,13 +41,18 @@ def resolve_db_tool(mariadb_name, mysql_name):
             return name
     return mysql_name
 
-def check_db_connection(dbname, dbuser, dbpass):
+def db_host_args(dbhost):
+    """Client arguments for $CFG->dbhost; none means the local default (socket)."""
+    return ['-h', dbhost] if dbhost else []
+
+
+def check_db_connection(dbname, dbuser, dbpass, dbhost=None):
     """Return (True, "") if dbname is reachable with these credentials, else
     (False, sanitized error). The password goes through MYSQL_PWD, never argv,
     where any local user could read it with ps. Raises FileNotFoundError if no
     client tool is installed."""
     result = subprocess.run(
-        [resolve_db_tool('mariadb-show', 'mysqlshow'), '-u', dbuser, dbname],
+        [resolve_db_tool('mariadb-show', 'mysqlshow'), '-u', dbuser, *db_host_args(dbhost), dbname],
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
         env={**os.environ, 'MYSQL_PWD': dbpass},
     )
@@ -191,7 +196,7 @@ class MoodleBackupManager:
                 excludes += ['--exclude', prefix + pattern]
         return excludes
 
-    def db_dump(self, dbname, dbuser, dbpass, verbose, db_dump_path):
+    def db_dump(self, dbname, dbuser, dbpass, verbose, db_dump_path, dbhost=None):
         """Perform database dump using mysqldump with progress monitoring. Returns True on success."""
         start = time.time()
 
@@ -203,7 +208,7 @@ class MoodleBackupManager:
         # than as a -p<pw> CLI argument: CLI args are visible in `ps` output
         # and shell history, env vars are not.
         dump_args = [
-            resolve_db_tool('mariadb-dump', 'mysqldump'), '-u', dbuser,
+            resolve_db_tool('mariadb-dump', 'mysqldump'), '-u', dbuser, *db_host_args(dbhost),
             '--single-transaction', '--skip-lock-tables',
             '--max_allowed_packet=100M', '--quick', '--databases', dbname
         ]
@@ -218,7 +223,7 @@ class MoodleBackupManager:
         monitor = SystemMonitor()
 
         # Start monitoring during database dump
-        monitor.start_monitoring(dump_file, dbname, dbuser, dbpass)
+        monitor.start_monitoring(dump_file, dbname, dbuser, dbpass, dbhost)
 
         completed = False
         try:

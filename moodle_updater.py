@@ -60,12 +60,12 @@ def prompt_db_password(prompt):
     return getpass.getpass(prompt).strip()
 
 
-def ensure_db_connection(dbname, dbuser, dbpass, non_interactive, max_attempts=3):
+def ensure_db_connection(dbname, dbuser, dbpass, non_interactive, dbhost=None, max_attempts=3):
     """Check the DB credentials, re-prompting for the password interactively.
     Returns the working password or aborts the run."""
     for attempt in range(1, max_attempts + 1):
         try:
-            ok, error = check_db_connection(dbname, dbuser, dbpass)
+            ok, error = check_db_connection(dbname, dbuser, dbpass, dbhost)
         except FileNotFoundError:
             logging.error("Neither mariadb-show nor mysqlshow found. Install the MariaDB/MySQL client tools.")
             sys.exit(1)
@@ -192,6 +192,7 @@ def main():
         if not read_db_from_config:
             dbname = config.get('database', 'db_name', fallback='moodle')
             dbuser = config.get('database', 'db_user', fallback='root')
+            dbhost = config.get('database', 'db_host', fallback='').strip()
             if non_interactive:
                 # No prompt possible: take the password from the environment,
                 # which is also where the MySQL/MariaDB client tools look for it.
@@ -207,6 +208,7 @@ def main():
             dbname = cfg.get('dbname')
             dbuser = cfg.get('dbuser')
             dbpass = cfg.get('dbpass')
+            dbhost = cfg.get('dbhost')
             missing = [key for key in ('dbname', 'dbuser', 'dbpass') if cfg.get(key) is None]
             if missing:
                 logging.error(f"Could not read {', '.join(missing)} from {configphppath}. "
@@ -216,9 +218,9 @@ def main():
         restart_database_flag = resolve_option(args.restart_database, "Restart database before dump?", "n", non_interactive)
 
         if dry_run:
-            logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser}")
+            logging.info(f"[Dry Run] Would run: mysqlshow to check if DB: {dbname} is accessible with user: {dbuser} on host: {dbhost or 'localhost'}")
         else:
-            dbpass = ensure_db_connection(dbname, dbuser, dbpass, non_interactive)
+            dbpass = ensure_db_connection(dbname, dbuser, dbpass, non_interactive, dbhost)
 
     # Git clone process
     if git_clone:
@@ -348,7 +350,7 @@ def main():
                 backup_manager.git_clone, configphp, repo, branch, sync_submodules,
                 chown_user, chown_group, restore_submodules_from_backup)))
         if db_dump:
-            lanes.append(("Database dump", partial(backup_manager.db_dump, dbname, dbuser, dbpass, verbose, db_dump_path)))
+            lanes.append(("Database dump", partial(backup_manager.db_dump, dbname, dbuser, dbpass, verbose, db_dump_path, dbhost)))
 
         multithreading = len(lanes) > 1
         if multithreading:

@@ -18,7 +18,7 @@ class SystemMonitor:
     def __init__(self):
         self.stop_event = threading.Event()
 
-    def get_database_size_mb(self, database, user, password):
+    def get_database_size_mb(self, database, user, password, host=None):
         # Reject any database name that is not a plain identifier. Without
         # this check a malicious or malformed name (e.g. one containing a
         # quote) would be interpolated directly into the SQL string below.
@@ -41,6 +41,7 @@ class SystemMonitor:
         cmd = [
             'mysql',
             '-u', user,
+            *(['-h', host] if host else []),
             '-N',   # Skip column names in output
             '-e', query,
         ]
@@ -60,7 +61,7 @@ class SystemMonitor:
             logging.error(f"Error: {result.stderr}")
             return 1
 
-    def monitor_dump_progress(self, dump_file, database, user, password, check_interval=5, log_interval=60, stagnation_threshold=60):
+    def monitor_dump_progress(self, dump_file, database, user, password, host=None, check_interval=5, log_interval=60, stagnation_threshold=60):
         """
         Monitors the size of the dump file and logs its progress periodically.
         
@@ -75,7 +76,7 @@ class SystemMonitor:
         last_log_time = 0
         start_time = time.time()
         approximate_db_to_dump_ratio = 0.644  # Adjust this ratio based on database characteristics
-        estimated_total_size = self.get_database_size_mb(database, user, password) * approximate_db_to_dump_ratio
+        estimated_total_size = self.get_database_size_mb(database, user, password, host) * approximate_db_to_dump_ratio
         logging.info(f"Monitoring database dump progress: {dump_file} | Estimated size: {estimated_total_size / 1024:.2f} GB")
         
         while not self.stop_event.is_set():
@@ -186,14 +187,14 @@ class SystemMonitor:
 
         logging.info("Memory monitoring stopped.")
 
-    def start_monitoring(self, dump_file, dbname, dbuser, dbpass):
+    def start_monitoring(self, dump_file, dbname, dbuser, dbpass, dbhost=None):
         """Starts monitoring memory and optionally dump progress in separate threads."""
         logging.info("Starting system monitoring...")
         
         self.memory_thread = threading.Thread(target=self.monitor_memory_usage)
         self.memory_thread.start()
 
-        self.dump_thread = threading.Thread(target=self.monitor_dump_progress, args=(dump_file, dbname, dbuser, dbpass,))
+        self.dump_thread = threading.Thread(target=self.monitor_dump_progress, args=(dump_file, dbname, dbuser, dbpass, dbhost))
         self.dump_thread.start()
 
     def stop_monitoring(self):

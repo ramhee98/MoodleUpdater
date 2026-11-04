@@ -57,26 +57,20 @@ class ConfigManager:
 
     @staticmethod
     def read_moodle_config(config_path):
-        """Reads the Moodle config.php file and extracts $CFG->dbname, $CFG->dbuser, and $CFG->dbpass."""
+        """Reads the Moodle config.php file and extracts $CFG->dbhost, $CFG->dbname,
+        $CFG->dbuser and $CFG->dbpass. Values may use single or double quotes and may
+        be empty; missing settings are returned as None."""
         cfg_values = {}
 
         try:
             with open(config_path, 'r') as file:
                 content = file.read()
 
-            # Regular expressions to match $CFG->dbname, $CFG->dbuser, and $CFG->dbpass
-            patterns = {
-                'dbname': r"\$CFG->dbname\s*=\s*'([^']+)'",
-                'dbuser': r"\$CFG->dbuser\s*=\s*'([^']+)'",
-                'dbpass': r"\$CFG->dbpass\s*=\s*'([^']+)'",
-            }
-
-            for key, pattern in patterns.items():
-                match = re.search(pattern, content)
-                if match:
-                    cfg_values[key] = match.group(1)
-                else:
-                    cfg_values[key] = None
+            for key in ('dbhost', 'dbname', 'dbuser', 'dbpass'):
+                # A quoted PHP string at the start of a line (so commented-out lines
+                # don't match); backslash escapes are allowed inside it.
+                match = re.search(rf"^\s*\$CFG->{key}\s*=\s*(['\"])((?:\\.|(?!\1).)*)\1\s*;", content, re.M)
+                cfg_values[key] = ConfigManager._php_unescape(match.group(2), match.group(1)) if match else None
 
         except FileNotFoundError:
             logging.error(f"File {config_path} not found.")
@@ -84,6 +78,15 @@ class ConfigManager:
             logging.error(f"An error occurred while reading the Moodle config: {e}")
 
         return cfg_values
+
+    @staticmethod
+    def _php_unescape(value, quote):
+        """Undo PHP's escapes in a quoted literal: an escaped backslash, an escaped
+        quote character and (in double quotes) an escaped dollar sign."""
+        escapes = {'\\': '\\', quote: quote}
+        if quote == '"':
+            escapes['$'] = '$'
+        return re.sub(r'\\(.)', lambda m: escapes.get(m.group(1), '\\' + m.group(1)), value)
 
     @staticmethod
     def check_config_differences(config_path, template_path):

@@ -25,7 +25,7 @@ def _results(monkeypatch, outcomes):
     """Make check_db_connection return the given outcomes in order, recording passwords."""
     passwords = []
 
-    def fake_check(dbname, dbuser, dbpass):
+    def fake_check(dbname, dbuser, dbpass, dbhost=None):
         passwords.append(dbpass)
         return outcomes.pop(0)
 
@@ -53,3 +53,17 @@ def test_gives_up_after_max_attempts(monkeypatch):
     with pytest.raises(SystemExit):
         moodle_updater.ensure_db_connection("db", "u", "wrong", non_interactive=False)
     assert len(passwords) == 3
+
+
+def test_db_host_is_passed_to_client(monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert moodle_backup.check_db_connection("moodle", "user", "pw", "db.example.org")[0] is True
+    assert seen["cmd"][-3:] == ["-h", "db.example.org", "moodle"]
+    moodle_backup.check_db_connection("moodle", "user", "pw", "")
+    assert "-h" not in seen["cmd"]

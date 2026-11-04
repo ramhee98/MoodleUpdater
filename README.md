@@ -277,6 +277,7 @@ python3 moodle_updater.py --non-interactive --directory-backup --db-dump --git-c
 Each step reports whether it succeeded, and steps that depend on a failed step are skipped:
 
 - If the directory backup fails, the git clone does not run, so the existing Moodle code is left untouched.
+- The git clone is built in a hidden staging directory next to the Moodle folder (`.<moodle>_new_<timestamp>`). The existing code is replaced only after clone, checkout, submodules and `config.php` have all succeeded, so a failed clone (for example a network error) leaves the site unchanged. During the clone you need enough free disk space for a second copy of the code. The Moodle code folder must not be a mount point, because the swap renames it.
 - If the directory backup, database dump, git clone or plugin restore fails, the Moodle CLI upgrade is skipped, because the upgrade changes the database schema and cannot be undone.
 - Unexpected errors in background threads are written to the log with a traceback and count as failures.
 - With `--restart-webserver`, the webserver is always started again, also after an error or Ctrl-C. Maintenance mode is always disabled again after the CLI upgrade, even if the upgrade crashes.

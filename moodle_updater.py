@@ -20,6 +20,16 @@ from modules.steps import run_step, run_steps_concurrently
 # Constants
 SEPARATOR = "-------------------------------------------------------------------------"
 
+def read_text_file(file_path):
+    """Read a file the update depends on, or abort before anything has been changed."""
+    try:
+        with open(file_path, 'r') as file:
+            return file.read()
+    except OSError as e:
+        logging.error(f"Cannot read {file_path}: {e}")
+        sys.exit(1)
+
+
 def main():
     # Parse arguments before anything else so --help works without config,
     # prompts or root, and --dry-run is known before the root check.
@@ -203,16 +213,16 @@ def main():
             except Exception as e:
                 logging.error(f"Error parsing Moodle versions: local='{local_release}', remote='{remote_release}'. Exception: {e}")
 
+        # None means "do not write a config.php into the new clone".
+        configphp = None
         if not non_interactive and not ApplicationSetup.confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
             customconfigphppath = input("Please enter a config.php path [press enter to skip]: ")
             if customconfigphppath:
-                with open(customconfigphppath, 'r') as file:
-                    configphp = file.read()
+                configphp = read_text_file(customconfigphppath)
             else:
                 logging.info("Restore of old config.php skipped.")
         else:
-            with open(configphppath, 'r') as file:
-                configphp = file.read()
+            configphp = read_text_file(configphppath)
 
         if not non_interactive and not ApplicationSetup.confirm(f"Do you want to git checkout {branch}?", "y"):
             branch = input("Please enter custom branch: ")

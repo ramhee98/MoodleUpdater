@@ -185,64 +185,62 @@ class MoodleBackupManager:
         return True
 
     def git_clone(self, config_php, repository, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup=False, full_backup=False):
-        """Clone a git repository. Returns True on success."""
+        """Clone a git repository. Returns True on success.
+
+        The clone is built in a staging directory next to the live code and only
+        swapped in once clone, checkout, submodules and config.php all succeeded,
+        so a failure never leaves the site without code. config_php is written
+        into the new tree; pass None to skip it."""
         start = time.time()
         clone_path = os.path.join(self.path, self.moodle)
-
-        if os.path.exists(clone_path):
-            if self.dry_run:
-                logging.info(f"[Dry Run] Would remove existing directory: {clone_path}")
-            else:
-                try:
-                    shutil.rmtree(clone_path)
-                except PermissionError:
-                    logging.error(f"Permission denied while removing {clone_path}. Try running with elevated privileges.")
-                    return False
-                except Exception as e:
-                    logging.error(f"Error removing directory {clone_path}: {e}")
-                    return False
+        timestamp = time.strftime('%Y-%m-%d-%H-%M-%S')
+        # Siblings of clone_path, so the final swap is a rename on the same filesystem.
+        staging_path = os.path.join(self.path, f".{self.moodle}_new_{timestamp}")
+        old_path = os.path.join(self.path, f".{self.moodle}_old_{timestamp}")
 
         if self.dry_run:
-            logging.info(f"[Dry Run] Would clone repository: {repository} to {self.path}")
-            logging.info(f"[Dry Run] Would checkout branch: {branch} to {clone_path}")
+            logging.info(f"[Dry Run] Would clone repository: {repository} to {staging_path}")
+            logging.info(f"[Dry Run] Would checkout branch: {branch} in {staging_path}")
         else:
             try:
-                subprocess.run(['git', 'clone', repository, clone_path], check=True)
+                subprocess.run(['git', 'clone', repository, staging_path], check=True)
             except subprocess.CalledProcessError as e:
-                logging.error(f"Git clone failed: {e.stderr}")
+                logging.error(f"Git clone failed (exit code {e.returncode}). The existing Moodle code was left untouched.")
+                self._discard(staging_path)
                 return False
             try:
-                subprocess.run(['git', '-C', clone_path, 'checkout', branch], check=True)
+                subprocess.run(['git', '-C', staging_path, 'checkout', branch], check=True)
             except subprocess.CalledProcessError as e:
-                logging.error(f"Git checkout failed: {e.stderr}")
+                logging.error(f"Git checkout of {branch} failed (exit code {e.returncode}). The existing Moodle code was left untouched.")
+                self._discard(staging_path)
                 return False
 
         if sync_submodules:
             if self.dry_run:
-                logging.info(f"[Dry Run] Would sync and update git submodules in {clone_path}")
+                logging.info(f"[Dry Run] Would sync and update git submodules in {staging_path}")
             else:
                 try:
-                    subprocess.run(['git', 'submodule', 'sync'], cwd=clone_path, check=True)
+                    subprocess.run(['git', 'submodule', 'sync'], cwd=staging_path, check=True)
                 except subprocess.CalledProcessError as e:
                     logging.error(f"Git submodule sync failed: {e.stderr}")
-                
+
                 # Get list of submodules and update each individually
-                result = subprocess.run(['git', 'submodule', 'status'], cwd=clone_path, capture_output=True, text=True)
-                
+                result = subprocess.run(['git', 'submodule', 'status'], cwd=staging_path, capture_output=True, text=True)
+
                 for line in result.stdout.strip().split('\n'):
                     if not line.strip():
                         continue
                     submodule_path = line.split()[1]
                     try:
-                        subprocess.run(['git', 'submodule', 'update', '--init', '--recursive', '--remote', '--', submodule_path], 
-                                      cwd=clone_path, check=True)
+                        subprocess.run(['git', 'submodule', 'update', '--init', '--recursive', '--remote', '--', submodule_path],
+                                      cwd=staging_path, check=True)
                         logging.info(f"Updated submodule {submodule_path} with remote tracking branch")
                         self.submodules_success += 1
                     except subprocess.CalledProcessError as e:
                         logging.error(f"Git submodule update failed for {submodule_path}: {e.stderr}")
                         self.submodules_failed += 1
                         self.failed_submodules.append(submodule_path)
-                
+
                 # Log brief summary
                 total = self.submodules_success + self.submodules_failed
                 if total > 0:
@@ -261,24 +259,38 @@ class MoodleBackupManager:
                 submodule_paths = []
 
             if self.dry_run:
-                logging.info(f"[Dry Run] Would restore submodules {submodule_paths} from backup in {backup_folder} to {clone_path}")
+                logging.info(f"[Dry Run] Would restore submodules {submodule_paths} from backup in {backup_folder} to {staging_path}")
                 for submodule in submodule_paths:
-                        logging.info(f"[Dry Run] would restore submodule {submodule} from backup {backup_folder} to {clone_path}")
+                        logging.info(f"[Dry Run] would restore submodule {submodule} from backup {backup_folder} to {staging_path}")
             else:
                 try:
                     for submodule in submodule_paths:
-                        logging.info(f"Restoring submodule {submodule} from backup {backup_folder} to {clone_path}")
-                        subprocess.run(['cp', '-r', os.path.join(backup_folder, submodule), os.path.join(clone_path, os.path.dirname(submodule))], check=True)
+                        logging.info(f"Restoring submodule {submodule} from backup {backup_folder} to {staging_path}")
+                        subprocess.run(['cp', '-r', os.path.join(backup_folder, submodule), os.path.join(staging_path, os.path.dirname(submodule))], check=True)
                 except subprocess.CalledProcessError as e:
                     logging.error(f"Restoring submodules from backup failed: {e.stderr}")
+                    self._discard(staging_path)
                     return False
 
-        if self.dry_run:
-            logging.info(f"[Dry Run] Would create config.php in {clone_path}")
-            logging.info(f"[Dry Run] Would set ownership of {clone_path} to www-data:www-data.")
+        if config_php is None:
+            logging.warning(f"No config.php provided; {clone_path} will not contain a config.php.")
+        elif self.dry_run:
+            logging.info(f"[Dry Run] Would create config.php in {staging_path}")
         else:
-            with open(os.path.join(clone_path, 'config.php'), 'w') as config_file:
-                config_file.write(config_php)
+            try:
+                with open(os.path.join(staging_path, 'config.php'), 'w') as config_file:
+                    config_file.write(config_php)
+            except OSError as e:
+                logging.error(f"Writing config.php failed: {e}. The existing Moodle code was left untouched.")
+                self._discard(staging_path)
+                return False
+
+        if self.dry_run:
+            logging.info(f"[Dry Run] Would replace {clone_path} with {staging_path}")
+            logging.info(f"[Dry Run] Would set ownership of {clone_path} to {chown_user}:{chown_group}.")
+        else:
+            if not self._swap_in(staging_path, clone_path, old_path):
+                return False
             try:
                 subprocess.run(['chown', f'{chown_user}:{chown_group}', clone_path, '-R'], check=True)
             except subprocess.CalledProcessError as e:
@@ -288,6 +300,37 @@ class MoodleBackupManager:
         logging.info("Finished git clone process")
         self.runtime_clone = int(time.time() - start)
         logging.info(f"Git clone completed in {self.runtime_clone} seconds.")
+        return True
+
+    @staticmethod
+    def _discard(path):
+        """Remove a half-built staging directory, ignoring errors."""
+        shutil.rmtree(path, ignore_errors=True)
+
+    def _swap_in(self, staging_path, clone_path, old_path):
+        """Replace clone_path with staging_path. The old tree is moved aside first
+        and put back if the swap fails, then removed. Returns True on success."""
+        if os.path.exists(clone_path):
+            try:
+                os.rename(clone_path, old_path)
+            except OSError as e:
+                logging.error(f"Could not move the existing {clone_path} aside: {e}. "
+                              "The existing Moodle code was left untouched. (Is it a mount point?)")
+                self._discard(staging_path)
+                return False
+        try:
+            os.rename(staging_path, clone_path)
+        except OSError as e:
+            logging.error(f"Could not move the new clone into {clone_path}: {e}. Restoring the previous code.")
+            if os.path.exists(old_path):
+                os.rename(old_path, clone_path)
+            self._discard(staging_path)
+            return False
+        if os.path.exists(old_path):
+            try:
+                shutil.rmtree(old_path)
+            except OSError as e:
+                logging.warning(f"Could not remove the previous code at {old_path}: {e}")
         return True
 
     def dir_backup_and_git_clone(self, config_php, full_backup, repo, branch, sync_submodules, chown_user, chown_group, restore_submodules_from_backup=False):

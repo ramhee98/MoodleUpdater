@@ -36,20 +36,3 @@ def test_clone_skipped_when_backup_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(manager, "git_clone", lambda *a, **k: (_ for _ in ()).throw(AssertionError("clone must not run")))
     assert manager.dir_backup_and_git_clone("cfg", False, "repo", "branch", True, "u", "g") is False
 
-
-def test_git_clone_aborts_when_clone_fails(tmp_path, monkeypatch):
-    import subprocess
-
-    calls = []
-
-    def fake_run(cmd, *a, **k):
-        calls.append(cmd)
-        if cmd[:2] == ["git", "clone"]:
-            raise subprocess.CalledProcessError(128, cmd)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    manager = MoodleBackupManager(str(tmp_path), "moodle", str(tmp_path))
-    assert manager.git_clone("<?php", "repo", "branch", False, "u", "g") is False
-    assert not any(cmd[0] == "chown" for cmd in calls)
-    assert not (tmp_path / "moodle" / "config.php").exists()

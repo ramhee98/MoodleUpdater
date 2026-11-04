@@ -10,23 +10,23 @@
 
 - **Backup Functionality**:
   - Perform a full or partial backup of your Moodle directory with `rsync -a`, which keeps symlinks, permissions, ownership and timestamps.
-  - Backup the Moodle database using `mysqldump`.
+  - Backup the Moodle database using `mariadb-dump` / `mysqldump`.
 
 - **Git Integration**:
-  - Clone Moodle's repository from GitHub.
+  - Clone the configured Moodle repository (for example from GitHub).
   - Checkout specific branches and sync submodules.
   - Submodules are updated individually with per-submodule error handling. If a submodule's remote tracking branch doesn't exist, the update continues with the remaining submodules.
   - A summary of successful and failed submodule updates is displayed at the end of the process.
-  - Before updating Moodle, MoodleUpdater now compares the local Moodle version with the latest version available in the configured Git repository. This ensures that updates are not performed if not possible, preventing unnecessary downtime.
+  - Before updating Moodle, MoodleUpdater compares the local Moodle version with the version in the configured Git repository and branch. It refuses to "update" to an older version.
 
 - **Automation**:
   - Multithreaded execution for combined tasks.
   - Prompts to confirm actions with optional default responses.
-  - Automatically restart Apache or Nginx after updates and Moodle CLI upgrades.
-  - Optionally perform a Moodle CLI upgrade via `admin/cli/upgrade.php`, now with pre-upgrade and post-upgrade system checks.
+  - Optionally stop Apache or Nginx while the update runs, start it again afterwards, and restart it after the Moodle CLI upgrade.
+  - Optionally perform a Moodle CLI upgrade via `admin/cli/upgrade.php`, with pre-upgrade and post-upgrade system checks.
   - The script runs `admin/cli/checks.php` before and after the upgrade to detect potential issues.
   - Optionally enable Moodle Maintenance Mode during Moodle CLI upgrade.
-  - Optionally restart the database service before a database dump.
+  - Optionally restart the MariaDB/MySQL service before a database dump.
 
 - **User and Group Ownership**:
   - Optionally set the user and group ownership for Moodle files and directories after cloning or updating Moodle.
@@ -50,7 +50,7 @@
 - **Progress and Memory Monitoring**:
   - During a database dump, the script actively monitors the dump file progress and system memory usage in real-time. One monitoring thread checks if the dump file is increasing in size (and warns if progress stalls), while another thread tracks available and free memory. This dual monitoring ensures that any potential stalls or memory issues are detected early, helping to maintain system stability during the update process.
 
-- **Enhanced Logging**: 
+- **Enhanced Logging**:
   - Configurable logging with options for console and file output.
   - Supports log rotation and adjustable logging levels for better debugging and monitoring.
   - The script measures and logs the execution time for key operations—directory backup, database dump, and Git clone. It also records the total runtime and calculates the time saved through multithreading when multiple tasks run concurrently. These detailed statistics provide valuable insights into the performance and efficiency of the update process.
@@ -58,25 +58,28 @@
 - **Modular Architecture**:
   - Built with a modular design using separate components for different functionalities:
     - `application_setup.py` - Handles initial configuration and setup
+    - `cli.py` - Command-line options and the "flag or prompt" logic
     - `config_manager.py` - Manages configuration file operations
+    - `db_tools.py` - MySQL/MariaDB client helpers (tool detection, connection check)
     - `git_manager.py` - Handles all Git-related operations
     - `moodle_backup.py` - Manages backup operations
     - `moodle_version.py` - Version checking and comparison
     - `service_manager.py` - Web server and database service management
+    - `steps.py` - Runs update steps (also in parallel) and records failures
     - `system_monitor.py` - System resource monitoring during operations
 
 ## Requirements
 
-- **Operating System**: Linux-based (e.g., Ubuntu)
+- **Operating System**: Debian-based Linux (e.g., Debian, Ubuntu)
 - **Dependencies**:
-  - `python3`
+  - `python3` (3.10 or newer)
+  - `python3-requests` (remote version check)
+  - `python3-apt` (detecting the installed webserver and database, only needed with `--restart-webserver` / `--restart-database`)
   - `rsync`
-  - `mysql-client` (MySQL or MariaDB tools)
   - `git`
-  - Root or sudo permissions for system and database operations.
-- **Additional Dependency**:
-    In addition to the main dependencies, the script requires the `python3-apt` package for managing the apt cache. It also relies on system utilities such as the `free` command, which is standard on Linux systems.
-    The script can detect installed webserver and database services and optionally restart them. This requires `systemctl` for managing services.
+  - MariaDB or MySQL client tools (`mariadb-client` or `default-mysql-client` on Debian)
+  - `systemctl`, `runuser` and `free`, which are part of a standard Debian/Ubuntu system
+  - Root or sudo permissions for real runs. `--dry-run` works without root.
 
 ## Installation
 
@@ -89,7 +92,7 @@
 2. Ensure required dependencies are installed:
    ```bash
    sudo apt update
-   sudo apt install python3 rsync mysql-client git
+   sudo apt install python3 python3-requests python3-apt rsync git mariadb-client
    ```
 
 3. Set up the configuration file:
@@ -104,8 +107,8 @@
    - **chown_user**: Specifies the user to set as the owner for Moodle files and directories, useful for setting file ownership after cloning or updating Moodle (e.g., www-data).
    - **chown_group**: Specifies the group to set as the owner for Moodle files and directories, ensuring correct group ownership and permissions (e.g., www-data).
    - **php_cli_user**: Optional. When set (e.g. `www-data`) and the script runs as root, Moodle's PHP CLI scripts (`upgrade.php`, `checks.php`, `maintenance.php`) run as this user through `runuser`, as Moodle recommends, so core and plugin upgrade code does not run with root privileges. Leave it empty to keep running them as root. Before you switch, make sure `moodledata` is writable by that user.
-   - **folder_backup_path**: Custom directory where backup files will be stored. If left blank, the current working directory will be used.
-   - **db_dump_path**: Custom directory where DB dumps will be stored. If left blank, the current working directory will be used.
+   - **folder_backup_path**: Directory where backup folders and the lock file are stored. `pwd` or an empty value means the MoodleUpdater directory itself (not the current working directory).
+   - **db_dump_path**: Directory where DB dumps are stored. `pwd` or an empty value means the MoodleUpdater directory itself.
    - Neither location may be inside the Moodle code folder (`path`/`moodle`), because the git clone replaces that folder. The script refuses to start if it is. If they are inside `path`, a full backup skips earlier backups, dumps and the lock file instead of copying them again.
    - **read_db_from_config**: Read the database host, name, username and password from `config.php`. Default is True. Single- and double-quoted values are both supported.
    - **db_name**: Name of the Moodle database, ignored if read_db_from_config is True.
@@ -116,12 +119,12 @@
    - **`log_to_console`**: Enable or disable logging to the console.
    - **`log_to_file`**: Enable or disable logging to a file.
    - **`log_file_path`**: Specify the file path where logs should be saved (only if `log_to_file` is enabled).
-   - **`log_level`**: Define the level of detail for logging. Available levels:  
-      - `DEBUG`: Detailed information for debugging.  
-      - `INFO`: General informational messages (default).  
-      - `WARNING`: Indicates potential issues.  
-      - `ERROR`: Errors that need immediate attention.  
-      - `CRITICAL`: Severe errors causing program termination.  
+   - **`log_level`**: Define the level of detail for logging. Available levels:
+      - `DEBUG`: Detailed information for debugging.
+      - `INFO`: General informational messages (default).
+      - `WARNING`: Indicates potential issues.
+      - `ERROR`: Errors that need immediate attention.
+      - `CRITICAL`: Severe errors causing program termination.
 
    Boolean settings accept `True`/`False`, `yes`/`no`, `on`/`off` or `1`/`0`, in any case. Any other value is an error, so a typo can't quietly switch off `dry_run`.
 
@@ -130,9 +133,9 @@
    ```ini
    [settings]
    dry_run = False
-   auto_update_script = True
+   auto_update_script = False
    repo = https://github.com/BLC-FHGR/moodle
-   branch = MOODLE_500_STABLE
+   branch = MOODLE_502_STABLE
    path = /var/www/moodle
    moodle = moodle
    chown_user = www-data
@@ -182,17 +185,17 @@ python3 moodle_updater.py [options]
 - `--moodle-cli-upgrade` - Start Moodle CLI upgrade process afterwards (default: True unless non-interactive is set, then default: False)
 - `--enable-maintenance-mode` - Enable Moodle Maintenance Mode during CLI upgrade (default: True unless non-interactive is set, then default: False)
 - `--force-continue` - Auto-continue even if system check reports errors (default: False)
-- `--restart-webserver` - Restart webserver automatically (default: True unless non-interactive is set, then default: False)
+- `--restart-webserver` - Stop the webserver (Apache or Nginx) before the backup/dump/clone, start it again afterwards, and restart it after the CLI upgrade (default: True unless non-interactive is set, then default: False)
 - `--restart-database` - Restart the MariaDB/MySQL service before the dump (default: False). Other services such as PostgreSQL or Redis are never restarted.
 - `--verbose` - Enable verbose mode (default: False)
 - `--full-backup` - Backup entire folder (containing moodle, moodledata, and data) (default: False) (used only if --directory-backup is set)
 - `--sync-submodules-off` - Disable syncing and updating of all submodules (default: False)
 - `--restore-submodules` - Restore git submodules from backup (default: False) (requires --directory-backup enabled) (automatically sets --sync-submodules-off to True)
 - `--restore-plugins` - Copy third-party plugins present in the directory backup but missing from the new clone (requires --directory-backup and --git-clone enabled)
-
-`--restore-submodules` and `--restore-plugins` always restore from the directory backup made in the same run, never from an older backup that happens to be on disk.
 - `--restore-plugins-manual` - Prompt y/n for each plugin instead of restoring all of them (default: False) (used only with --restore-plugins; requires interactive mode)
 - `--dry-run` - Run in dry run mode without making any changes (default: False). Does not require root.
+
+`--restore-submodules` and `--restore-plugins` always restore from the directory backup made in the same run, never from an older backup that happens to be on disk.
 
 Unknown or misspelled options are rejected with an error, so a typo such as `--dryrun` can never turn a simulation into a real run.
 
@@ -232,17 +235,17 @@ python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --res
 
 2. **Database Backup**:
    - Dump the Moodle database to a `.sql` file in the directory specified in `config.ini` (the directory is created if needed). If the dump fails, the incomplete file is deleted so it can't be mistaken for a valid backup.
-   - Database credentials are read from the `config.php` file if `read_db_from_config` is enabled in `config.ini`. Otherwise, credentials specified in `config.ini` are used, password is requested by the user.
+   - Database credentials are read from the `config.php` file if `read_db_from_config` is enabled in `config.ini`. Otherwise the credentials in `config.ini` are used and the password is requested from the user (or read from `MYSQL_PWD` in non-interactive mode).
    - Before dumping, the script asks if the database should be restarted.
    - If restarted, a **2-second pause** is added to ensure the database is fully initialized before proceeding.
 
 3. **Git Operations**:
-   - Clone the Moodle repository.
-   - Optionally restore `config.php` from a previous backup.
-   - Ensures the local repository is up-to-date before operations if there are no local changes.
+   - Clone the Moodle repository and check out the configured branch.
+   - Copy `config.php` from the old installation into the new clone (or from another path you enter, or skip it).
+   - Sync submodules, or restore them from the directory backup with `--restore-submodules`.
 
 4. **Multithreading**:
-   - Directory backups, database dumps, and Git operations can run concurrently, saving time.
+   - The database dump runs in parallel with the directory backup and git clone. The backup and the clone run one after the other, because the clone replaces the code the backup protects.
 
 5. **Moodle CLI Upgrade**:
    - After updating Moodle, you can run the Moodle upgrade script (`admin/cli/upgrade.php`) automatically.
@@ -250,22 +253,20 @@ python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --res
    - You will be asked whether to enable Maintenance Mode before upgrading.
    - If enabled, Maintenance Mode will be automatically disabled once the upgrade is complete.
    - Any errors encountered during the CLI upgrade are logged.
-   - If the web server was stopped for the update, it will be restarted after the upgrade.
-
-6. **Post-Process**:
-   - Optionally restart Apache or Nginx to apply changes.
+   - If the web server was stopped for the update, it is started again before the upgrade and restarted after it.
+   - The upgrade is skipped if any earlier step failed (see [Failure Handling and Exit Codes](#failure-handling-and-exit-codes)).
 
 ### Key Prompts
 
 - **Path**: Confirm the default Moodle installation path or provide a custom path.
 - **Database Credentials**: Enter the Moodle database name, user, and password when prompted.
-- **Git Repository**: By default, clones the Moodle repository from GitHub with the branch `MOODLE_500_STABLE`.
+- **Git Branch**: Confirm the branch from `config.ini` (the template uses `MOODLE_502_STABLE`) or enter another one.
 
 ### Logs and Outputs
 
 - Backups and dumps are timestamped for easy tracking.
 - Backup folders are created with mode `0700` and dumps with `0600`, because they contain `config.php` (with the DB password) and all user data. Only root can read them.
-- All errors are reported to the terminal, including failed database connections or file operations.
+- All errors are reported to the terminal and the log file, including failed database connections or file operations.
 
 ### Non-Interactive Mode
 
@@ -304,7 +305,7 @@ Exit codes:
 
 ## Multithreading Efficiency
 
-The script optimizes runtime by leveraging Python's threading module. Tasks like backups and Git operations run in parallel, significantly reducing execution time.
+The script runs the database dump in its own thread alongside the directory backup and git clone, which can significantly reduce the total runtime. The log reports how much time this saved.
 
 ## Development
 
@@ -333,9 +334,3 @@ Use this tool at your own risk. Ensure you have proper backups and permissions b
 ## Author
 
 Developed by [ramhee98](https://github.com/ramhee98). For questions or suggestions, feel free to open an issue in the repository.
-
-### Highlights:
-- The **Features** and **Usage** sections match the script's functionality.
-- Multithreading is emphasized as a key benefit.
-- Prompts and outputs are explained clearly.
-- The script uses its own directory as the reference point for operations, ensuring consistency regardless of where it is executed.

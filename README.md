@@ -180,7 +180,7 @@ python3 moodle_updater.py [options]
 - `--enable-maintenance-mode` - Enable Moodle Maintenance Mode during CLI upgrade (default: True unless non-interactive is set, then default: False)
 - `--force-continue` - Auto-continue even if system check reports errors (default: False)
 - `--restart-webserver` - Restart webserver automatically (default: True unless non-interactive is set, then default: False)
-- `--restart-database` - Restart database before dump (default: False)
+- `--restart-database` - Restart the MariaDB/MySQL service before the dump (default: False). Other services such as PostgreSQL or Redis are never restarted.
 - `--verbose` - Enable verbose mode (default: False)
 - `--full-backup` - Backup entire folder (containing moodle, moodledata, and data) (default: False) (used only if --directory-backup is set)
 - `--sync-submodules-off` - Disable syncing and updating of all submodules (default: False)

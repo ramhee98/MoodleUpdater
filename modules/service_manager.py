@@ -1,23 +1,41 @@
-import apt
 import logging
 import subprocess
+
+PAST_TENSE = {"start": "started", "stop": "stopped", "restart": "restarted"}
+
 
 class ServiceManager:
     """Handles web and database service restarts."""
 
+    # apt package -> systemd service, in order of preference
+    WEBSERVERS = {"apache2": "apache2", "nginx": "nginx"}
+    # Only MySQL/MariaDB: the dump supports nothing else, and restarting e.g. Redis
+    # would wipe Moodle sessions and caches for no benefit.
+    DATABASES = {"mariadb-server": "mariadb", "mysql-server": "mysql"}
+
     def __init__(self, dry_run=False):
         self.dry_run = dry_run
-        self.cache = apt.Cache()  # Load package cache once and reuse
+        self._cache = None
+
+    @property
+    def cache(self):
+        """apt package cache, loaded on first use so python3-apt is only needed
+        (and the cache only read) when a service is actually touched."""
+        if self._cache is None:
+            import apt
+            self._cache = apt.Cache()
+        return self._cache
+
+    def _installed_service(self, candidates):
+        """Return the service of the first installed package in candidates, or None."""
+        for package, service in candidates.items():
+            if package in self.cache and self.cache[package].is_installed:
+                return service
+        return None
 
     def restart_webserver(self, action):
         """start / stop the apache or nginx webserver, depending on which one is installed"""
-        webserver = None
-
-        if self.cache["apache2"].is_installed:
-            webserver = "apache2"
-        elif self.cache["nginx"].is_installed:
-            webserver = "nginx"
-
+        webserver = self._installed_service(self.WEBSERVERS)
         if not webserver:
             logging.warning("No supported web server found (Apache/Nginx).")
             return
@@ -26,27 +44,14 @@ class ServiceManager:
         self._run_systemctl(action, webserver)
 
     def restart_database(self, action):
-        """Start / stop the installed database service, based on availability."""
-        database_services = {
-            "mysql-server": "mysql",
-            "mariadb-server": "mariadb",
-            "postgresql": "postgresql",
-            "mssql-server": "mssql-server",
-            "mongodb": "mongodb",
-            "redis-server": "redis",
-        }
-
-        # Identify installed database services
-        installed_db_services = [service for service in database_services if service in self.cache and self.cache[service].is_installed]
-
-        if not installed_db_services:
-            logging.warning("No supported database server found.")
+        """Start / stop the installed MySQL/MariaDB service."""
+        service = self._installed_service(self.DATABASES)
+        if not service:
+            logging.warning("No supported database server found (MariaDB/MySQL).")
             return
 
-        for db_service in installed_db_services:
-            service_name = database_services[db_service]
-            logging.info(f"Attempting to {action} the {service_name} service.")
-            self._run_systemctl(action, service_name)
+        logging.info(f"Attempting to {action} the {service} service.")
+        self._run_systemctl(action, service)
 
     def _run_systemctl(self, action, service_name):
         """Runs the systemctl command for service management."""
@@ -55,6 +60,6 @@ class ServiceManager:
         else:
             try:
                 subprocess.run(['systemctl', action, service_name], check=True)
-                logging.info(f"{service_name} service {action}ed successfully.")
+                logging.info(f"{service_name} service {PAST_TENSE.get(action, action)} successfully.")
             except subprocess.CalledProcessError as e:
-                logging.error(f"Failed to {action} the {service_name} service: {e.stderr}")
+                logging.error(f"Failed to {action} the {service_name} service (exit code {e.returncode}).")

@@ -39,7 +39,7 @@ def test_upgrade_failure_collects_output_from_real_process(tmp_path, monkeypatch
     )
     manager = MoodleBackupManager(str(tmp_path), "moodle", str(tmp_path))
     monkeypatch.setattr(manager, "_php_command", lambda *a: [sys.executable, str(script)])
-    monkeypatch.setattr(manager, "run_moodle_check", lambda **kwargs: None)
+    monkeypatch.setattr(manager, "run_moodle_check", lambda **kwargs: True)
     assert manager.moodle_cli_upgrade(False, force_continue=False) is False
     assert manager.upgrade_error_details[0] == "Exit code: 3"
     assert "Upgrading core: !! Database error !!" in manager.upgrade_error_details
@@ -51,5 +51,5 @@ def test_upgrade_success(tmp_path, monkeypatch):
     script.write_text("print('== Done ==')\n")
     manager = MoodleBackupManager(str(tmp_path), "moodle", str(tmp_path))
     monkeypatch.setattr(manager, "_php_command", lambda *a: [sys.executable, str(script)])
-    monkeypatch.setattr(manager, "run_moodle_check", lambda **kwargs: None)
+    monkeypatch.setattr(manager, "run_moodle_check", lambda **kwargs: True)
     assert manager.moodle_cli_upgrade(False, force_continue=False) is True

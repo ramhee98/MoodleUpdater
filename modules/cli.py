@@ -27,9 +27,9 @@ def build_parser():
     parser.add_argument("--force-continue", action="store_true",
                         help="Auto-continue even if system check reports errors (default: False)")
     parser.add_argument("--restart-webserver", action="store_true",
-                        help=f"Stop the webserver during the update and start it again afterwards ({INTERACTIVE_DEFAULT})")
+                        help=f"Stop the webserver for the whole update (including the CLI upgrade) and start it again at the end ({INTERACTIVE_DEFAULT})")
     parser.add_argument("--restart-database", action="store_true",
-                        help="Restart database before dump (default: False)")
+                        help="Restart the MariaDB/MySQL service before the dump (default: False)")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose mode (default: False)")
     parser.add_argument("--full-backup", action="store_true",

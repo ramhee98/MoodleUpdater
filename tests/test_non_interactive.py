@@ -30,20 +30,27 @@ def _failing_checks(monkeypatch):
 
 
 def _manager(tmp_path):
+    checks = tmp_path / "moodle" / "admin" / "cli" / "checks.php"
+    checks.parent.mkdir(parents=True)
+    checks.write_text("<?php")
     return MoodleBackupManager(str(tmp_path), "moodle", str(tmp_path), non_interactive=True)
 
 
 def test_failed_pre_check_stops_without_prompt(monkeypatch, tmp_path):
     _failing_checks(monkeypatch)
-    with pytest.raises(SystemExit):
-        _manager(tmp_path).run_moodle_check(before_upgrade=True)
+    assert _manager(tmp_path).run_moodle_check(before_upgrade=True) is False
 
 
-def test_failed_post_check_continues_without_prompt(monkeypatch, tmp_path):
+def test_failed_post_check_is_reported_without_prompt(monkeypatch, tmp_path):
     _failing_checks(monkeypatch)
-    _manager(tmp_path).run_moodle_check(before_upgrade=False)
+    assert _manager(tmp_path).run_moodle_check(before_upgrade=False) is False
 
 
 def test_force_continue_skips_stop(monkeypatch, tmp_path):
     _failing_checks(monkeypatch)
-    _manager(tmp_path).run_moodle_check(before_upgrade=True, force_continue=True)
+    assert _manager(tmp_path).run_moodle_check(before_upgrade=True, force_continue=True) is True
+
+
+def test_missing_checks_script_is_an_error(tmp_path):
+    manager = MoodleBackupManager(str(tmp_path), "moodle", str(tmp_path), non_interactive=True)
+    assert manager.run_moodle_check(before_upgrade=True) is False

@@ -33,6 +33,6 @@ def test_thread_exceptions_reach_the_caller(caplog):
 def test_clone_skipped_when_backup_fails(tmp_path, monkeypatch):
     manager = MoodleBackupManager(str(tmp_path), "moodle", str(tmp_path))
     monkeypatch.setattr(manager, "dir_backup", lambda full_backup: False)
-    monkeypatch.setattr(manager, "git_clone", lambda *a, **k: (_ for _ in ()).throw(AssertionError("clone must not run")))
-    assert manager.dir_backup_and_git_clone("cfg", False, "repo", "branch", True, "u", "g") is False
+    monkeypatch.setattr(manager, "prepare_clone", lambda *a, **k: (_ for _ in ()).throw(AssertionError("clone must not run")))
+    assert manager.dir_backup_and_prepare_clone("cfg", False, "repo", "branch", True) is False
 

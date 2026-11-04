@@ -2,8 +2,10 @@
 import errno
 import fcntl
 import getpass
+import hashlib
 import logging
 import os
+import stat
 import sys
 import time
 from functools import partial
@@ -12,44 +14,73 @@ from functools import partial
 from modules.application_setup import ApplicationSetup
 from modules.cli import parse_args, resolve_option
 from modules.db_tools import check_db_connection
-from modules.moodle_backup import MoodleBackupManager, is_within
+from modules.moodle_backup import DEFAULT_CONFIG_PHP_MODE, MoodleBackupManager, is_within
 from modules.config_manager import SEPARATOR, ConfigManager
 from modules.moodle_version import MoodleVersionChecker
 from modules.service_manager import ServiceManager
 from modules.steps import run_step, run_steps_concurrently
 
 
-def read_text_file(file_path):
-    """Read a file the update depends on, or abort before anything has been changed."""
+# Root-only runtime directory for instance locks (real runs always run as root).
+# MOODLE_UPDATER_LOCK_DIR overrides it, e.g. on systems without /run.
+LOCK_DIR = os.environ.get("MOODLE_UPDATER_LOCK_DIR", "/run/moodle_updater")
+
+
+def read_config_php(file_path):
+    """Return (content, mode) of the config.php to carry over, or abort before
+    anything has been changed. The mode is kept so the new copy is never more
+    readable than the original; group/other write is always dropped."""
     try:
         with open(file_path, 'r') as file:
-            return file.read()
+            content = file.read()
+            mode = stat.S_IMODE(os.fstat(file.fileno()).st_mode) & 0o755
+        return content, mode
     except OSError as e:
         logging.error(f"Cannot read {file_path}: {e}")
         sys.exit(1)
 
 
-def acquire_instance_lock(folder, moodle):
+def acquire_instance_lock(instance_path, lock_dir=None):
     """Take a per-instance lock so two concurrent moodle_updater.py runs can't
     clobber each other's backups, dumps, or git clones for the same Moodle
-    instance. The lock file lives in the backup folder; it is released when the
-    returned file object is closed or the process ends. Aborts if it is held."""
-    lock_path = os.path.join(folder, f".moodle_updater_{moodle}.lock")
-    # Open without truncating: the PID inside belongs to whoever holds the lock.
-    lock_fp = os.fdopen(os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600), "r+")
+    instance, whatever config file or backup folder they use. The lock is keyed
+    by the canonical path of the Moodle code directory and lives in a private
+    directory; it is released when the returned file object is closed or the
+    process ends. Aborts if it is held or the lock location is not trustworthy."""
+    lock_dir = lock_dir or LOCK_DIR
+    instance = os.path.realpath(instance_path)
+    lock_path = os.path.join(lock_dir, hashlib.sha256(instance.encode()).hexdigest()[:16] + ".lock")
+    try:
+        os.makedirs(lock_dir, mode=0o700, exist_ok=True)
+        st = os.lstat(lock_dir)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o022:
+            logging.error(f"Lock directory {lock_dir} must be a directory owned by this user and not "
+                          "writable by others. Aborting.")
+            sys.exit(1)
+        # O_NOFOLLOW: never follow a planted symlink; open without truncating, the
+        # PID inside belongs to whoever holds the lock.
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    except OSError as e:
+        logging.error(f"Cannot open lock file {lock_path}: {e}. Aborting.")
+        sys.exit(1)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        logging.error(f"Lock file {lock_path} is not a regular file. Aborting.")
+        sys.exit(1)
+    lock_fp = os.fdopen(fd, "r+")
     try:
         fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as e:
         if e.errno in (errno.EAGAIN, errno.EACCES):
-            holder = lock_fp.read().strip() or "unknown"
+            holder = lock_fp.read().split(maxsplit=1)[:1] or ["unknown"]
             logging.error(
-                f"Another moodle_updater.py run (PID {holder}) is already in progress for "
-                f"instance '{moodle}' (lock file: {lock_path}). Aborting."
+                f"Another moodle_updater.py run (PID {holder[0]}) is already in progress for "
+                f"{instance} (lock file: {lock_path}). Aborting."
             )
             sys.exit(1)
         raise
     lock_fp.truncate(0)
-    lock_fp.write(f"{os.getpid()}\n")
+    lock_fp.write(f"{os.getpid()} {instance}\n")
     lock_fp.flush()
     return lock_fp
 
@@ -241,12 +272,11 @@ def main():
         db_dump_path = pwd
 
     # The git clone replaces the Moodle code directory and a partial backup copies
-    # it: backups, dumps or the lock file (kept in folder_backup_path) stored inside
-    # it would be deleted or copied into themselves.
+    # it: backups or dumps stored inside it, from this run or earlier ones, would be
+    # deleted or copied into themselves.
     if dir_backup or git_clone:
-        for setting, location, used in (("folder_backup_path", folder_backup_path, True),
-                                         ("db_dump_path", db_dump_path, db_dump)):
-            if used and is_within(location, full_path):
+        for setting, location in (("folder_backup_path", folder_backup_path), ("db_dump_path", db_dump_path)):
+            if is_within(location, full_path):
                 logging.error(f"{setting} ({location}) is inside the Moodle code directory {full_path}. "
                               "Choose a location outside of it.")
                 sys.exit(1)
@@ -258,12 +288,17 @@ def main():
         dry_run=dry_run,
         non_interactive=non_interactive,
         php_cli_user=config.get('settings', 'php_cli_user', fallback='').strip(),
-        db_dump_path=db_dump_path if db_dump else None,
+        # Always passed: earlier dumps there must stay out of full backups too.
+        db_dump_path=db_dump_path,
     )
 
     # Keep the lock object referenced for the whole run; closing it releases the lock.
-    os.makedirs(folder_backup_path, exist_ok=True)
-    _instance_lock = acquire_instance_lock(folder_backup_path, moodle)
+    # A dry run changes nothing, so it neither needs nor creates a lock.
+    if dry_run:
+        logging.info("[Dry Run] Not taking the instance lock.")
+    else:
+        os.makedirs(folder_backup_path, exist_ok=True)
+        _instance_lock = acquire_instance_lock(full_path)
 
     restart_webserver_flag = resolve_option(args.restart_webserver, "Restart webserver automatically?", "y", non_interactive)
 
@@ -298,7 +333,12 @@ def main():
         repo = config.get('settings', 'repo')
         branch = config.get('settings', 'branch')
 
-        # Get local and remote versions
+        # Settle the branch before the version check uses it.
+        if not non_interactive and not ApplicationSetup.confirm(f"Do you want to git checkout {branch}?", "y"):
+            branch = input("Please enter custom branch: ")
+
+        # Early, advisory check against the remote; the checked-out tree is checked
+        # again before it goes live (refusing a downgrade even if this one can't run).
         checker = MoodleVersionChecker(full_path, repo, branch)
         local_release, local_build = checker.get_local_version()
         remote_release, remote_build = checker.get_remote_version()
@@ -317,18 +357,15 @@ def main():
                 logging.error(f"Error parsing Moodle versions: local='{local_release}', remote='{remote_release}'. Exception: {e}")
 
         # None means "do not write a config.php into the new clone".
-        configphp = None
+        configphp, configphp_mode = None, DEFAULT_CONFIG_PHP_MODE
         if not non_interactive and not ApplicationSetup.confirm(f"Do you want to copy {configphppath} from the old directory?", "y"):
             customconfigphppath = input("Please enter a config.php path [press enter to skip]: ")
             if customconfigphppath:
-                configphp = read_text_file(customconfigphppath)
+                configphp, configphp_mode = read_config_php(customconfigphppath)
             else:
                 logging.info("Restore of old config.php skipped.")
         else:
-            configphp = read_text_file(configphppath)
-
-        if not non_interactive and not ApplicationSetup.confirm(f"Do you want to git checkout {branch}?", "y"):
-            branch = input("Please enter custom branch: ")
+            configphp, configphp_mode = read_config_php(configphppath)
 
         if args.sync_submodules_off:
             sync_submodules = False
@@ -400,71 +437,99 @@ def main():
 
     service_manager = ServiceManager(dry_run)  # Create an instance
 
-    if restart_webserver_flag:
-        service_manager.restart_webserver("stop")
-
-    # Everything between stopping and starting the webserver runs inside try/finally
-    # so the site comes back even after an unexpected error, sys.exit or Ctrl-C.
+    # Everything from stopping the webserver to starting it again runs inside
+    # try/finally, so the site comes back even after an unexpected error, sys.exit
+    # or Ctrl-C (also during the stop itself). The webserver stays down until the
+    # CLI upgrade and its checks are done, so no request ever reaches new code
+    # running against an old or half-upgraded database.
     failed_steps = []
+    webserver_stop_attempted = False
+    multithreading, lanes_runtime = False, 0
     try:
-        if restart_database_flag:
-            service_manager.restart_database("restart")
-            time.sleep(2) # Pause to ensure the DB is fully ready
-
-        # Build independent lanes of work. Backup and clone share a lane because the
-        # clone replaces the code the backup protects; the dump runs alongside.
-        lanes = []
-        if dir_backup and git_clone:
-            lanes.append(("Directory backup and git clone", partial(
-                backup_manager.dir_backup_and_git_clone, configphp, full_backup, repo, branch,
-                sync_submodules, chown_user, chown_group, restore_submodules_from_backup)))
-        elif dir_backup:
-            lanes.append(("Directory backup", partial(backup_manager.dir_backup, full_backup)))
-        elif git_clone:
-            lanes.append(("Git clone", partial(
-                backup_manager.git_clone, configphp, repo, branch, sync_submodules,
-                chown_user, chown_group, restore_submodules_from_backup)))
-        if db_dump:
-            lanes.append(("Database dump", partial(backup_manager.db_dump, dbname, dbuser, dbpass, verbose, db_dump_path, dbhost)))
-
-        multithreading = len(lanes) > 1
-        lanes_start = time.time()
-        if multithreading:
-            logging.info(f"Starting {' and '.join(name.lower() for name, _ in lanes)} (multithreaded).")
-            results = run_steps_concurrently(lanes)
-        else:
-            results = {}
-            for name, func in lanes:
-                logging.info(f"Starting {name.lower()}")
-                results[name] = run_step(name, func)
-        lanes_runtime = int(time.time() - lanes_start)
-        failed_steps.extend(name for name, ok in results.items() if not ok)
-
-        if restore_plugins_from_backup and git_clone:
-            if failed_steps:
-                logging.error(f"Skipping plugin restore because a previous step failed: {', '.join(failed_steps)}.")
-            elif not run_step("Plugin restore", backup_manager.restore_plugins, chown_user, chown_group,
-                              full_backup=full_backup if dir_backup else False, selection_mode=restore_plugins_mode):
-                failed_steps.append("Plugin restore")
-    finally:
         if restart_webserver_flag:
-            service_manager.restart_webserver("start")
+            webserver_stop_attempted = True
+            if not service_manager.restart_webserver("stop"):
+                failed_steps.append("Stopping the webserver")
 
-    if moodle_cli_upgrade:
+        if restart_database_flag and not failed_steps:
+            if service_manager.restart_database("restart"):
+                time.sleep(2)  # Pause to ensure the DB is fully ready
+            else:
+                failed_steps.append("Restarting the database")
+
         if failed_steps:
-            # The upgrade changes the database schema and cannot be undone; never
-            # run it without the backups and code it depends on.
-            logging.error(f"Skipping Moodle CLI upgrade because a previous step failed: {', '.join(failed_steps)}. "
-                          "Fix the problem and re-run with --moodle-cli-upgrade.")
-            failed_steps.append("Moodle CLI upgrade (skipped)")
+            logging.error(f"Not starting the update because a preparation step failed: {', '.join(failed_steps)}. "
+                          "Nothing was changed.")
         else:
-            if not run_step("Moodle CLI upgrade", backup_manager.moodle_cli_upgrade, moodle_maintenance_mode_flag, force_continue):
-                failed_steps.append("Moodle CLI upgrade")
-            if restart_webserver_flag:
-                service_manager.restart_webserver("restart")
+            # Build independent lanes of work. Backup and clone share a lane because
+            # the clone replaces the code the backup protects; the dump runs alongside.
+            # The clone is only *prepared* here: it goes live below, once every lane
+            # (the dump included) has succeeded.
+            lanes = []
+            if dir_backup and git_clone:
+                lanes.append(("Directory backup and git clone", partial(
+                    backup_manager.dir_backup_and_prepare_clone, configphp, full_backup, repo, branch,
+                    sync_submodules, restore_submodules_from_backup, configphp_mode)))
+            elif dir_backup:
+                lanes.append(("Directory backup", partial(backup_manager.dir_backup, full_backup)))
+            elif git_clone:
+                lanes.append(("Git clone", partial(
+                    backup_manager.prepare_clone, configphp, repo, branch, sync_submodules,
+                    restore_submodules_from_backup, False, configphp_mode)))
+            if db_dump:
+                lanes.append(("Database dump", partial(backup_manager.db_dump, dbname, dbuser, dbpass, verbose, db_dump_path, dbhost)))
+
+            multithreading = len(lanes) > 1
+            lanes_start = time.time()
+            if multithreading:
+                logging.info(f"Starting {' and '.join(name.lower() for name, _ in lanes)} (multithreaded).")
+                results = run_steps_concurrently(lanes)
+            else:
+                results = {}
+                for name, func in lanes:
+                    logging.info(f"Starting {name.lower()}")
+                    results[name] = run_step(name, func)
+            lanes_runtime = int(time.time() - lanes_start)
+            failed_steps.extend(name for name, ok in results.items() if not ok)
+
+            if git_clone:
+                if failed_steps:
+                    logging.error(f"Not putting the new code in place because a previous step failed: {', '.join(failed_steps)}. "
+                                  "The existing Moodle code was left untouched.")
+                    backup_manager.discard_clone()
+                elif restore_plugins_from_backup and not run_step(
+                        "Plugin restore", backup_manager.restore_plugins, chown_user, chown_group,
+                        full_backup=full_backup if dir_backup else False, selection_mode=restore_plugins_mode,
+                        target_root=backup_manager.staged_clone):
+                    failed_steps.append("Plugin restore")
+                    logging.error("Not putting the new code in place because the plugin restore failed. "
+                                  "The existing Moodle code was left untouched.")
+                    backup_manager.discard_clone()
+                elif not run_step("Putting the new code in place", backup_manager.commit_clone, chown_user, chown_group):
+                    failed_steps.append("Putting the new code in place")
+
+            if moodle_cli_upgrade:
+                if failed_steps:
+                    # The upgrade changes the database schema and cannot be undone; never
+                    # run it without the backups and code it depends on.
+                    logging.error(f"Skipping Moodle CLI upgrade because a previous step failed: {', '.join(failed_steps)}. "
+                                  "Fix the problem and re-run with --moodle-cli-upgrade.")
+                    failed_steps.append("Moodle CLI upgrade (skipped)")
+                elif not run_step("Moodle CLI upgrade", backup_manager.moodle_cli_upgrade, moodle_maintenance_mode_flag, force_continue):
+                    failed_steps.append("Moodle CLI upgrade")
+    finally:
+        # A clone that was prepared but never put in place (failure, Ctrl-C) holds a
+        # copy of config.php: remove it.
+        backup_manager.discard_clone()
+        if webserver_stop_attempted and not service_manager.restart_webserver("start"):
+            failed_steps.append("Starting the webserver")
+        if backup_manager.live_tree_missing:
+            logging.critical(f"{full_path} is missing; see the CRITICAL message above for how to restore the previous code.")
 
     runtime = int(time.time() - start_time)  # Convert to integer seconds
     log_run_summary(backup_manager, runtime, lanes_runtime if multithreading else None)
+    if backup_manager.maintenance_disable_failed:
+        logging.critical("Moodle maintenance mode is still enabled; see the CRITICAL message above.")
 
     if failed_steps:
         logging.info(SEPARATOR)

@@ -43,26 +43,29 @@ def test_backup_folder_is_private(tmp_path):
 
 
 def test_lock_file_is_private_and_exclusive(tmp_path):
-    lock = moodle_updater.acquire_instance_lock(str(tmp_path), "moodle")
-    lock_path = tmp_path / ".moodle_updater_moodle.lock"
+    lock_dir = tmp_path / "locks"
+    instance = tmp_path / "www" / "moodle"
+    lock = moodle_updater.acquire_instance_lock(str(instance), str(lock_dir))
+    (lock_path,) = lock_dir.iterdir()
+    assert _mode(lock_dir) == 0o700
     assert _mode(lock_path) == 0o600
-    assert lock_path.read_text().strip() == str(os.getpid())
+    assert lock_path.read_text().split() == [str(os.getpid()), str(instance)]
 
     # A second run in another process must be refused and must not wipe the PID.
     code = (
         "import sys; sys.path.insert(0, %r); import moodle_updater; "
-        "moodle_updater.acquire_instance_lock(%r, 'moodle')"
-    ) % (os.path.dirname(os.path.dirname(os.path.abspath(__file__))), str(tmp_path))
+        "moodle_updater.acquire_instance_lock(%r, %r)"
+    ) % (os.path.dirname(os.path.dirname(os.path.abspath(__file__))), str(instance), str(lock_dir))
     result = subprocess.run([os.sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 1
     assert f"PID {os.getpid()}" in result.stderr
-    assert lock_path.read_text().strip() == str(os.getpid())
+    assert lock_path.read_text().split()[0] == str(os.getpid())
     lock.close()
 
 
 def test_lock_can_be_reacquired_after_release(tmp_path):
-    moodle_updater.acquire_instance_lock(str(tmp_path), "moodle").close()
-    moodle_updater.acquire_instance_lock(str(tmp_path), "moodle").close()
+    moodle_updater.acquire_instance_lock(str(tmp_path / "moodle"), str(tmp_path / "locks")).close()
+    moodle_updater.acquire_instance_lock(str(tmp_path / "moodle"), str(tmp_path / "locks")).close()
 
 
 def test_backup_keeps_symlinks_and_modes(tmp_path):

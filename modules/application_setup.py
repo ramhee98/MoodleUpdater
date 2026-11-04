@@ -46,6 +46,25 @@ class ApplicationSetup:
             logging.error(f"This script must be run as root. Use 'sudo python3 {script}'")
             sys.exit(1)
 
+        self.warn_if_install_writable_by_others()
+
+    def warn_if_install_writable_by_others(self):
+        """Warn when root runs code that a non-root user can modify (directly, or
+        through what self-update pulls in): that user can then run code as root."""
+        if os.geteuid() != 0:
+            return
+        for path in (self.pwd, os.path.join(self.pwd, 'moodle_updater.py'), os.path.join(self.pwd, 'modules')):
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if st.st_uid != 0 or st.st_mode & 0o022:
+                logging.warning(
+                    f"SECURITY: {path} is owned by uid {st.st_uid} or writable by group/others, but this "
+                    f"script runs as root. Anyone who can modify it can run code as root. "
+                    f"Consider: chown -R root:root {self.pwd} && chmod -R go-w {self.pwd}")
+                return
+
     def handle_auto_update(self):
         """Checks if auto-update is enabled and runs it if necessary."""
         if ConfigManager.get_bool(self.config, 'settings', 'auto_update_script'):

@@ -39,11 +39,13 @@
 - **Update MoodleUpdater with Git Pull**:
   - Optionally pull the latest version of the script from the Git repository on start.
   - Configurable through the `auto_update_script` setting in `config.ini`. When enabled, the script automatically checks for updates and pulls them if no local changes are detected.
-  - If `auto_update_script` is disabled, user is asked if he wants to pull MoodleUpdater from GitHub.
+  - If `auto_update_script` is disabled, the user is asked whether to pull MoodleUpdater from GitHub (not in `--non-interactive` mode).
   - Compares `config.ini` with `config_template.ini` and highlights any differences to ensure proper configuration.
   - Retrieve and display detailed information about the current commit (time, author, summary).
   - Automatically checks and reports the branch name, current commit details, and updated commit details after pulling changes.
   - After successfully pulling updates from the Git repository, the script automatically restarts itself. This ensures that the latest changes take effect immediately, eliminating the need for manual restarts.
+  - Updates are detected by comparing the commit before and after the pull, so this works with any system language.
+  - **Security note**: self-update runs `git pull` as root and then executes the pulled code without verifying it. Anyone who can push to the configured remote, or who can write to the MoodleUpdater directory, can run code as root on your server. Keep the checkout owned by root and not writable by other users (`chown -R root:root /path/to/MoodleUpdater && chmod -R go-w /path/to/MoodleUpdater`), and only enable `auto_update_script` if you trust the remote. The script logs a `SECURITY` warning when it runs as root from a directory other users can modify.
 
 - **Progress and Memory Monitoring**:
   - During a database dump, the script actively monitors the dump file progress and system memory usage in real-time. One monitoring thread checks if the dump file is increasing in size (and warns if progress stalls), while another thread tracks available and free memory. This dual monitoring ensures that any potential stalls or memory issues are detected early, helping to maintain system stability during the update process.

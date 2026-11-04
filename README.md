@@ -180,7 +180,9 @@ python3 moodle_updater.py [options]
 - `--restore-submodules` - Restore git submodules from backup (default: False) (requires --directory-backup enabled) (automatically sets --sync-submodules-off to True)
 - `--restore-plugins` - Copy third-party plugins present in the directory backup but missing from the new clone (requires --directory-backup and --git-clone enabled)
 - `--restore-plugins-manual` - Prompt y/n for each plugin instead of restoring all of them (default: False) (used only with --restore-plugins; requires interactive mode)
-- `--dry-run` - Run in dry run mode without making any changes (default: False)
+- `--dry-run` - Run in dry run mode without making any changes (default: False). Does not require root.
+
+Unknown or misspelled options are rejected with an error, so a typo such as `--dryrun` can never turn a simulation into a real run.
 
 **Example Commands:**
 
@@ -257,6 +259,7 @@ python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --res
 For automated deployments and scripting, MoodleUpdater supports a non-interactive mode:
 
 - Use `--non-interactive` to run without user prompts
+- The "Pull MoodleUpdater from GitHub?" prompt is skipped; self-update only runs when `auto_update_script = True`
 - In non-interactive mode, all operations default to `False` unless explicitly enabled with command-line flags
 - Combine with specific operation flags to control which tasks to execute
 - Perfect for CI/CD pipelines, cron jobs, and automated update scripts

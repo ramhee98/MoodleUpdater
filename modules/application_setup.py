@@ -13,10 +13,12 @@ SEPARATOR = "-------------------------------------------------------------------
 class ApplicationSetup:
     """Handles configuration loading, logging setup, and initial checks."""
     
-    def __init__(self, pwd, config_path, config_template_path):
+    def __init__(self, pwd, config_path, config_template_path, non_interactive=False, dry_run=False):
         self.pwd = pwd
         self.config_path = config_path
         self.config_template_path = config_template_path
+        self.non_interactive = non_interactive
+        self.cli_dry_run = dry_run
         self.config_manager = ConfigManager(self.config_path, pwd)
         
         # Load configuration
@@ -38,9 +40,10 @@ class ApplicationSetup:
         # Load essential settings
         self.load_core_settings()
 
-        # Exit script if dry run is not enabled and root permissions are missing 
+        # Exit script if dry run is not enabled and root permissions are missing
         if not self.dry_run and os.geteuid() != 0:
-            logging.error(f"This script must be run as root. Use 'sudo python3 {__file__}'")
+            script = os.path.join(self.pwd, 'moodle_updater.py')
+            logging.error(f"This script must be run as root. Use 'sudo python3 {script}'")
             sys.exit(1)
 
     def handle_auto_update(self):
@@ -48,6 +51,8 @@ class ApplicationSetup:
         auto_update = self.config.get('settings', 'auto_update_script', fallback=False)
         if auto_update == "True":
             GitManager.self_update(self.pwd, self.config_path, self.config_template_path)
+        elif self.non_interactive:
+            logging.info("auto_update_script is disabled; skipping self-update in non-interactive mode.")
         else:
             logging.info(SEPARATOR)
             if self.confirm("Pull MoodleUpdater from GitHub?", "n"):
@@ -67,7 +72,7 @@ class ApplicationSetup:
 
     def load_core_settings(self):
         """Loads core settings like paths, dry-run mode, and Moodle version."""
-        self.dry_run = self.config.get('settings', 'dry_run', fallback="False") == "True"
+        self.dry_run = self.config.get('settings', 'dry_run', fallback="False") == "True" or self.cli_dry_run
         self.moodle = self.config.get('settings', 'moodle', fallback='moodle')
         self.path = self.config.get('settings', 'path', fallback=self.pwd)
         self.full_path = os.path.join(self.path, self.moodle)
@@ -81,7 +86,7 @@ class ApplicationSetup:
 
         # Log if dry-run mode is enabled
         if self.dry_run:
-            logging.warning("[Dry Run] is enabled!")
+            logging.warning("[Dry Run] is enabled! No changes will be made.")
             logging.info(SEPARATOR)
 
     @staticmethod

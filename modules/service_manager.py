@@ -34,32 +34,37 @@ class ServiceManager:
         return None
 
     def restart_webserver(self, action):
-        """start / stop the apache or nginx webserver, depending on which one is installed"""
+        """start / stop the apache or nginx webserver, depending on which one is
+        installed. Returns True on success; no supported webserver is a failure."""
         webserver = self._installed_service(self.WEBSERVERS)
         if not webserver:
-            logging.warning("No supported web server found (Apache/Nginx).")
-            return
+            logging.error(f"Cannot {action} the webserver: no supported web server found (Apache/Nginx).")
+            return False
 
         logging.info(f"Attempting to {action} the {webserver} service.")
-        self._run_systemctl(action, webserver)
+        return self._run_systemctl(action, webserver)
 
     def restart_database(self, action):
-        """Start / stop the installed MySQL/MariaDB service."""
+        """Start / stop the installed MySQL/MariaDB service. Returns True on success."""
         service = self._installed_service(self.DATABASES)
         if not service:
-            logging.warning("No supported database server found (MariaDB/MySQL).")
-            return
+            logging.error(f"Cannot {action} the database: no supported database server found (MariaDB/MySQL).")
+            return False
 
         logging.info(f"Attempting to {action} the {service} service.")
-        self._run_systemctl(action, service)
+        return self._run_systemctl(action, service)
 
     def _run_systemctl(self, action, service_name):
-        """Runs the systemctl command for service management."""
+        """Runs the systemctl command for service management. Returns True on success."""
         if self.dry_run:
             logging.info(f"[Dry Run] Would run: systemctl {action} {service_name}")
-        else:
-            try:
-                subprocess.run(['systemctl', action, service_name], check=True)
-                logging.info(f"{service_name} service {PAST_TENSE.get(action, action)} successfully.")
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Failed to {action} the {service_name} service (exit code {e.returncode}).")
+            return True
+        try:
+            subprocess.run(['systemctl', action, service_name], check=True, stdin=subprocess.DEVNULL)
+            logging.info(f"{service_name} service {PAST_TENSE.get(action, action)} successfully.")
+            return True
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to {action} the {service_name} service (exit code {e.returncode}).")
+        except OSError as e:
+            logging.error(f"Failed to {action} the {service_name} service: {e}")
+        return False

@@ -179,6 +179,8 @@ python3 moodle_updater.py [options]
 - `--sync-submodules-off` - Disable syncing and updating of all submodules (default: False)
 - `--restore-submodules` - Restore git submodules from backup (default: False) (requires --directory-backup enabled) (automatically sets --sync-submodules-off to True)
 - `--restore-plugins` - Copy third-party plugins present in the directory backup but missing from the new clone (requires --directory-backup and --git-clone enabled)
+
+`--restore-submodules` and `--restore-plugins` always restore from the directory backup made in the same run, never from an older backup that happens to be on disk.
 - `--restore-plugins-manual` - Prompt y/n for each plugin instead of restoring all of them (default: False) (used only with --restore-plugins; requires interactive mode)
 - `--dry-run` - Run in dry run mode without making any changes (default: False). Does not require root.
 

@@ -1,31 +1,9 @@
 import os
-import subprocess
 
 import pytest
+from conftest import GROUP, USER
 
 from modules.moodle_backup import MoodleBackupManager
-
-# chown to our own numeric ids works without root and without named groups.
-USER = str(os.getuid())
-GROUP = str(os.getgid())
-
-
-def _git(*args, cwd=None):
-    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.org", *args],
-                   cwd=cwd, check=True, capture_output=True)
-
-
-@pytest.fixture
-def upstream(tmp_path):
-    """A local repository with one commit on branch MOODLE_TEST."""
-    repo = tmp_path / "upstream"
-    repo.mkdir()
-    _git("init", "-q", "-b", "MOODLE_TEST", cwd=repo)
-    (repo / "version.php").write_text("<?php $version = 2;\n")
-    _git("add", ".", cwd=repo)
-    _git("commit", "-q", "-m", "init", cwd=repo)
-    return str(repo)
-
 
 @pytest.fixture
 def site(tmp_path):

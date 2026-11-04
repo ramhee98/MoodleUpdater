@@ -5,7 +5,6 @@ import select
 import shutil
 import subprocess
 import sys
-import glob
 from modules.application_setup import ApplicationSetup
 from modules.system_monitor import SystemMonitor
 
@@ -246,29 +245,33 @@ class MoodleBackupManager:
                 if total > 0:
                     logging.info(f"Submodule sync complete: {self.submodules_success}/{total} succeeded, {self.submodules_failed}/{total} failed")
         elif restore_submodules_from_backup:
-            if not full_backup:
-                backup_folder = max(glob.glob(os.path.join(self.folder_backup_path, f"{self.moodle}_bak_partial_*")), key=os.path.getmtime)
-            else:
-                backup_folder = max(glob.glob(os.path.join(self.folder_backup_path, f"{self.moodle}_bak_full_*"), "moodle"), key=os.path.getmtime)
+            backup_folder = self._backup_moodle_root(full_backup)
+            if backup_folder is None:
+                self._discard(staging_path)
+                return False
 
-            submodules = subprocess.run(['git', 'config', '--file', os.path.join(backup_folder, '.gitmodules'), '--get-regexp', 'path'], capture_output=True, text=True)
-            if submodules.returncode == 0:
-                submodule_paths = [line.split()[1] for line in submodules.stdout.strip().split('\n')]
-            else:
-                logging.error(f"Failed to get submodules from backup: {submodules.stderr.strip()}")
-                submodule_paths = []
+            submodule_paths = self._read_submodule_paths(backup_folder)
+            if submodule_paths is None:
+                self._discard(staging_path)
+                return False
 
             if self.dry_run:
-                logging.info(f"[Dry Run] Would restore submodules {submodule_paths} from backup in {backup_folder} to {staging_path}")
                 for submodule in submodule_paths:
-                        logging.info(f"[Dry Run] would restore submodule {submodule} from backup {backup_folder} to {staging_path}")
+                    logging.info(f"[Dry Run] Would restore submodule {submodule} from backup {backup_folder} to {staging_path}")
             else:
-                try:
-                    for submodule in submodule_paths:
-                        logging.info(f"Restoring submodule {submodule} from backup {backup_folder} to {staging_path}")
-                        subprocess.run(['cp', '-r', os.path.join(backup_folder, submodule), os.path.join(staging_path, os.path.dirname(submodule))], check=True)
-                except subprocess.CalledProcessError as e:
-                    logging.error(f"Restoring submodules from backup failed: {e.stderr}")
+                failed = []
+                for submodule in submodule_paths:
+                    logging.info(f"Restoring submodule {submodule} from backup {backup_folder} to {staging_path}")
+                    # The parent must exist, or cp would create it as a copy of the submodule itself.
+                    target_parent = os.path.join(staging_path, os.path.dirname(submodule))
+                    try:
+                        os.makedirs(target_parent, exist_ok=True)
+                        subprocess.run(['cp', '-r', os.path.join(backup_folder, submodule), target_parent], check=True)
+                    except subprocess.CalledProcessError as e:
+                        logging.error(f"Restoring submodule {submodule} from backup failed (exit code {e.returncode}).")
+                        failed.append(submodule)
+                if failed:
+                    logging.error(f"Restoring submodules from backup failed for: {', '.join(failed)}. The existing Moodle code was left untouched.")
                     self._discard(staging_path)
                     return False
 
@@ -301,6 +304,38 @@ class MoodleBackupManager:
         self.runtime_clone = int(time.time() - start)
         logging.info(f"Git clone completed in {self.runtime_clone} seconds.")
         return True
+
+    def _backup_moodle_root(self, full_backup):
+        """Return the Moodle code directory inside the backup made in this run.
+
+        Restores must use this run's backup, never an older one found on disk.
+        In dry-run mode nothing was copied, so the live install stands in for it."""
+        if not self.backup_folder:
+            logging.error("No directory backup was made in this run; cannot restore from backup.")
+            return None
+        # A full backup copies the parent folder, so the code lives in <backup>/<moodle>.
+        root = os.path.join(self.backup_folder, self.moodle) if full_backup else self.backup_folder
+        if self.dry_run and not os.path.isdir(root):
+            live = os.path.join(self.path, self.moodle)
+            logging.info(f"[Dry Run] Backup {root} does not exist; reading the live install {live} instead.")
+            return live
+        return root
+
+    @staticmethod
+    def _read_submodule_paths(moodle_root):
+        """Return the submodule paths listed in <moodle_root>/.gitmodules ([] if
+        there is none), or None if the file exists but cannot be read."""
+        gitmodules = os.path.join(moodle_root, '.gitmodules')
+        if not os.path.isfile(gitmodules):
+            return []
+        result = subprocess.run(['git', 'config', '--file', gitmodules, '--get-regexp', r'\.path$'],
+                                capture_output=True, text=True)
+        if result.returncode == 1:  # file exists but defines no submodules
+            return []
+        if result.returncode != 0:
+            logging.error(f"Failed to read submodules from {gitmodules}: {result.stderr.strip()}")
+            return None
+        return [line.split(maxsplit=1)[1] for line in result.stdout.splitlines() if line.strip()]
 
     @staticmethod
     def _discard(path):
@@ -370,19 +405,10 @@ class MoodleBackupManager:
 
         clone_path = os.path.join(self.path, self.moodle)
 
-        # Locate the latest directory backup (mirrors restore-submodules logic).
-        if not full_backup:
-            pattern = os.path.join(self.folder_backup_path, f"{self.moodle}_bak_partial_*")
-        else:
-            pattern = os.path.join(self.folder_backup_path, f"{self.moodle}_bak_full_*")
-        candidates = glob.glob(pattern)
-        if not candidates:
-            logging.error(f"No directory backup found matching {pattern}; cannot restore plugins.")
+        # Use the backup made in this run (in a full backup the code lives under <backup>/<moodle>/).
+        backup_moodle_root = self._backup_moodle_root(full_backup)
+        if backup_moodle_root is None:
             return False
-        backup_folder = max(candidates, key=os.path.getmtime)
-
-        # In a full backup the moodle source lives under <backup>/<moodle>/.
-        backup_moodle_root = os.path.join(backup_folder, self.moodle) if full_backup else backup_folder
 
         # Moodle 5.x uses a "public dir" layout where plugins live under public/.
         # Detect which root contains the plugin parents in both the backup and the new clone.
@@ -395,18 +421,10 @@ class MoodleBackupManager:
         # .gitmodules sits at the repo root, but paths inside are relative to it,
         # so we also need to strip the public/ prefix when comparing.
         submodule_paths = set()
-        gitmodules = os.path.join(backup_moodle_root, '.gitmodules')
-        if os.path.isfile(gitmodules):
-            result = subprocess.run(
-                ['git', 'config', '--file', gitmodules, '--get-regexp', 'path'],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                raw_paths = {line.split()[1] for line in result.stdout.strip().split('\n') if line.strip()}
-                code_root_rel = os.path.relpath(backup_code_root, backup_moodle_root)
-                prefix = '' if code_root_rel == '.' else code_root_rel + os.sep
-                for p in raw_paths:
-                    submodule_paths.add(p[len(prefix):] if prefix and p.startswith(prefix) else p)
+        code_root_rel = os.path.relpath(backup_code_root, backup_moodle_root)
+        prefix = '' if code_root_rel == '.' else code_root_rel + os.sep
+        for p in self._read_submodule_paths(backup_moodle_root) or []:
+            submodule_paths.add(p[len(prefix):] if prefix and p.startswith(prefix) else p)
 
         # Discover plugin candidates structurally: any directory under the code
         # root containing a version.php is a Moodle plugin, regardless of where it

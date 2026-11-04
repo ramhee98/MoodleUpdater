@@ -125,6 +125,16 @@ def main():
         logging.warning("No tasks selected. Script aborted.")
         sys.exit(1)
 
+    # Settle the Moodle path before anything (backup manager, config.php path)
+    # is derived from it.
+    if dir_backup or git_clone:
+        logging.info("Preparing Moodle directory path.")
+        if not non_interactive and not ApplicationSetup.confirm(f"Is this the correct Moodle directory? {path}", "y"):
+            path = input("Please enter a path: ").rstrip("/")
+            full_path = os.path.join(path, moodle)
+            configphppath = os.path.join(full_path, 'config.php')
+            logging.info(f"Using Moodle directory {full_path}")
+
     folder_backup_path = config.get('settings', 'folder_backup_path', fallback='pwd')
     if folder_backup_path in ["pwd", ""]:
         folder_backup_path = pwd
@@ -153,12 +163,6 @@ def main():
     restore_plugins_mode = "auto"
 
     verbose = resolve_option(args.verbose, "Do you want to enable verbose mode?", "n", non_interactive)
-
-    if dir_backup or git_clone:
-        logging.info("Preparing Moodle directory path.")
-        if not non_interactive and not ApplicationSetup.confirm(f"Is this the correct Moodle directory? {path}", "y"):
-            path = input("Please enter a path: ").rstrip("/")
-            full_path = os.path.join(path, moodle)
 
     # Directory backup process
     full_backup = False

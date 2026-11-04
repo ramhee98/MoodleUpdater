@@ -5,6 +5,26 @@ import logging
 from modules.config_manager import SEPARATOR, ConfigManager
 
 
+def git_environment(non_interactive):
+    """Environment for git subprocesses. In non-interactive mode git and ssh must
+    never wait for a username, password or passphrase: terminal prompts are
+    disabled and ssh runs in batch mode. Credentials that are already set up
+    (credential helpers, ssh keys/agents, tokens in the URL) keep working."""
+    env = dict(os.environ)
+    if non_interactive:
+        env['GIT_TERMINAL_PROMPT'] = '0'
+        env['GCM_INTERACTIVE'] = 'never'
+        env['SSH_ASKPASS_REQUIRE'] = 'never'
+        # Respect an explicitly configured ssh command; otherwise force batch mode.
+        env.setdefault('GIT_SSH_COMMAND', 'ssh -o BatchMode=yes')
+    return env
+
+
+def git_stdin(non_interactive):
+    """stdin for git subprocesses: closed in non-interactive mode, so nothing can block reading it."""
+    return subprocess.DEVNULL if non_interactive else None
+
+
 class GitManager:
     """Handles Git operations such as fetching commit details and self-updating the script."""
 
@@ -37,11 +57,12 @@ class GitManager:
         return "Unknown", "Unknown", "Unknown"
 
     @staticmethod
-    def _git(pwd, *args):
+    def _git(pwd, *args, non_interactive=False):
         """Run a git command in pwd. Returns its stripped stdout, or None (after
         logging the error) if it failed."""
         try:
-            result = subprocess.run(['git', '-C', pwd, *args], capture_output=True, text=True, check=True)
+            result = subprocess.run(['git', '-C', pwd, *args], capture_output=True, text=True, check=True,
+                                    env=git_environment(non_interactive), stdin=git_stdin(non_interactive))
         except subprocess.CalledProcessError as e:
             logging.error(f"git {' '.join(args)} failed: {e.stderr.strip()}")
             return None
@@ -51,7 +72,7 @@ class GitManager:
         return result.stdout.strip()
 
     @staticmethod
-    def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH):
+    def self_update(pwd, CONFIG_PATH, CONFIG_TEMPLATE_PATH, non_interactive=False):
         """Check if running inside a Git repo, ensure no local changes, and pull the latest changes."""
         logging.info(SEPARATOR)
         logging.info("Starting self-update process...")
@@ -86,7 +107,7 @@ class GitManager:
 
             # Pull the latest changes from the remote repository to update the script.
             logging.info("Checking for updates...")
-            if GitManager._git(pwd, 'pull', '--rebase') is None:
+            if GitManager._git(pwd, 'pull', '--rebase', non_interactive=non_interactive) is None:
                 logging.info("Continuing with the current version.")
                 ConfigManager.check_config_differences(CONFIG_PATH, CONFIG_TEMPLATE_PATH)
                 return

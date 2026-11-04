@@ -285,46 +285,50 @@ def main():
     if restart_webserver_flag:
         service_manager.restart_webserver("stop")
 
-    if restart_database_flag:
-        service_manager.restart_database("restart")
-        time.sleep(2) # Pause to ensure the DB is fully ready
+    # Everything between stopping and starting the webserver runs inside try/finally
+    # so the site comes back even after an unexpected error, sys.exit or Ctrl-C.
+    failed_steps = []
+    try:
+        if restart_database_flag:
+            service_manager.restart_database("restart")
+            time.sleep(2) # Pause to ensure the DB is fully ready
 
-    # Build independent lanes of work. Backup and clone share a lane because the
-    # clone replaces the code the backup protects; the dump runs alongside.
-    lanes = []
-    if dir_backup and git_clone:
-        lanes.append(("Directory backup and git clone", partial(
-            backup_manager.dir_backup_and_git_clone, configphp, full_backup, repo, branch,
-            sync_submodules, chown_user, chown_group, restore_submodules_from_backup)))
-    elif dir_backup:
-        lanes.append(("Directory backup", partial(backup_manager.dir_backup, full_backup)))
-    elif git_clone:
-        lanes.append(("Git clone", partial(
-            backup_manager.git_clone, configphp, repo, branch, sync_submodules,
-            chown_user, chown_group, restore_submodules_from_backup)))
-    if db_dump:
-        lanes.append(("Database dump", partial(backup_manager.db_dump, dbname, dbuser, dbpass, verbose, db_dump_path)))
+        # Build independent lanes of work. Backup and clone share a lane because the
+        # clone replaces the code the backup protects; the dump runs alongside.
+        lanes = []
+        if dir_backup and git_clone:
+            lanes.append(("Directory backup and git clone", partial(
+                backup_manager.dir_backup_and_git_clone, configphp, full_backup, repo, branch,
+                sync_submodules, chown_user, chown_group, restore_submodules_from_backup)))
+        elif dir_backup:
+            lanes.append(("Directory backup", partial(backup_manager.dir_backup, full_backup)))
+        elif git_clone:
+            lanes.append(("Git clone", partial(
+                backup_manager.git_clone, configphp, repo, branch, sync_submodules,
+                chown_user, chown_group, restore_submodules_from_backup)))
+        if db_dump:
+            lanes.append(("Database dump", partial(backup_manager.db_dump, dbname, dbuser, dbpass, verbose, db_dump_path)))
 
-    multithreading = len(lanes) > 1
-    if multithreading:
-        logging.info(f"Starting {' and '.join(name.lower() for name, _ in lanes)} (multithreaded).")
-        results = run_steps_concurrently(lanes)
-    else:
-        results = {}
-        for name, func in lanes:
-            logging.info(f"Starting {name.lower()}")
-            results[name] = run_step(name, func)
-    failed_steps = [name for name, ok in results.items() if not ok]
+        multithreading = len(lanes) > 1
+        if multithreading:
+            logging.info(f"Starting {' and '.join(name.lower() for name, _ in lanes)} (multithreaded).")
+            results = run_steps_concurrently(lanes)
+        else:
+            results = {}
+            for name, func in lanes:
+                logging.info(f"Starting {name.lower()}")
+                results[name] = run_step(name, func)
+        failed_steps.extend(name for name, ok in results.items() if not ok)
 
-    if restore_plugins_from_backup and git_clone:
-        if failed_steps:
-            logging.error(f"Skipping plugin restore because a previous step failed: {', '.join(failed_steps)}.")
-        elif not run_step("Plugin restore", backup_manager.restore_plugins, chown_user, chown_group,
-                          full_backup=full_backup if dir_backup else False, selection_mode=restore_plugins_mode):
-            failed_steps.append("Plugin restore")
-
-    if restart_webserver_flag:
-        service_manager.restart_webserver("start")
+        if restore_plugins_from_backup and git_clone:
+            if failed_steps:
+                logging.error(f"Skipping plugin restore because a previous step failed: {', '.join(failed_steps)}.")
+            elif not run_step("Plugin restore", backup_manager.restore_plugins, chown_user, chown_group,
+                              full_backup=full_backup if dir_backup else False, selection_mode=restore_plugins_mode):
+                failed_steps.append("Plugin restore")
+    finally:
+        if restart_webserver_flag:
+            service_manager.restart_webserver("start")
 
     if moodle_cli_upgrade:
         if failed_steps:

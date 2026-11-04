@@ -279,6 +279,7 @@ Each step reports whether it succeeded, and steps that depend on a failed step a
 - If the directory backup fails, the git clone does not run, so the existing Moodle code is left untouched.
 - If the directory backup, database dump, git clone or plugin restore fails, the Moodle CLI upgrade is skipped, because the upgrade changes the database schema and cannot be undone.
 - Unexpected errors in background threads are written to the log with a traceback and count as failures.
+- With `--restart-webserver`, the webserver is always started again, also after an error or Ctrl-C. Maintenance mode is always disabled again after the CLI upgrade, even if the upgrade crashes.
 - A `FAILED STEPS` summary is logged at the end of the run.
 
 Exit codes:

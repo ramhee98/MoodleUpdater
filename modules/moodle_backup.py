@@ -465,9 +465,11 @@ class MoodleBackupManager:
             # Run pre-upgrade checks
             self.run_moodle_check(before_upgrade=True, force_continue=force_continue)
 
+            maintenance_enabled = False
             try:
                 if moodle_maintenance_mode_flag:
                     self.moodle_maintenance_mode(True)
+                    maintenance_enabled = True
 
                 process = subprocess.Popen(
                     ['php', moodle_upgrade_script, '--non-interactive'],
@@ -531,9 +533,6 @@ class MoodleBackupManager:
 
                 process.wait()
 
-                if moodle_maintenance_mode_flag:
-                    self.moodle_maintenance_mode(False)
-
                 if process.returncode != 0:
                     logging.error(f"Moodle upgrade failed with exit code {process.returncode}")
                     self.upgrade_failed = True
@@ -546,6 +545,11 @@ class MoodleBackupManager:
                 logging.error(f"Unexpected error during Moodle upgrade: {e}")
                 self.upgrade_failed = True
                 self.upgrade_error_details.append(f"Unexpected error: {e}")
+            finally:
+                # Never leave the site in maintenance mode because of an exception
+                # or Ctrl-C between enabling and disabling it.
+                if maintenance_enabled:
+                    self.moodle_maintenance_mode(False)
 
             # Run post-upgrade checks
             self.run_moodle_check(before_upgrade=False, force_continue=force_continue)

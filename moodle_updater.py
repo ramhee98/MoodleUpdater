@@ -82,6 +82,103 @@ def ensure_db_connection(dbname, dbuser, dbpass, non_interactive, dbhost=None, m
     sys.exit(1)
 
 
+def log_run_summary(backup_manager, runtime, lanes_runtime=None):
+    """Log step durations and the submodule, plugin and upgrade summaries.
+    lanes_runtime is the wall time of the parallel phase, or None if nothing ran in parallel."""
+    runtime_backup = backup_manager.runtime_backup
+    runtime_dump = backup_manager.runtime_dump
+    runtime_clone = backup_manager.runtime_clone
+    runtime_cliupgrade = backup_manager.runtime_cliupgrade
+
+    # Log if any operation times were recorded
+    if runtime_backup:
+        logging.info("Directory backup time needed: %d seconds", runtime_backup)
+    else:
+        runtime_backup = 0
+
+    if runtime_dump:
+        logging.info("Database dump time needed: %d seconds", runtime_dump)
+    else:
+        runtime_dump = 0
+
+    if runtime_clone:
+        logging.info("Git clone time needed: %d seconds", runtime_clone)
+    else:
+        runtime_clone = 0
+
+    if runtime_cliupgrade:
+        logging.info("Moodle CLI Upgrade time needed: %d seconds", runtime_cliupgrade)
+    else:
+        runtime_cliupgrade = 0
+
+    runtime_restore_plugins = backup_manager.runtime_restore_plugins
+    if runtime_restore_plugins:
+        logging.info("Plugin restore time needed: %d seconds", runtime_restore_plugins)
+    else:
+        runtime_restore_plugins = 0
+
+    # Log total runtime
+    logging.info("Total execution time (excluding user input): %d seconds", runtime)
+    if lanes_runtime is not None:
+        # Only backup, clone and dump run in parallel; compare their summed
+        # durations with the wall time of that phase alone.
+        logging.info("Time saved with multithreading: %d seconds", runtime_backup + runtime_dump + runtime_clone - lanes_runtime)
+
+    # Log failed submodules summary at the end if any failed
+    if backup_manager.failed_submodules:
+        logging.info(SEPARATOR)
+        logging.warning(f"SUBMODULE SYNC SUMMARY: {backup_manager.submodules_failed} submodule(s) failed to update")
+        logging.warning(f"Failed submodules: {', '.join(backup_manager.failed_submodules)}")
+
+    # Log plugin restore summary at the end if it ran
+    if backup_manager.restored_plugins or backup_manager.skipped_plugins:
+        logging.info(SEPARATOR)
+        logging.info(f"PLUGIN RESTORE SUMMARY: {len(backup_manager.restored_plugins)} restored, {len(backup_manager.skipped_plugins)} already present")
+        if backup_manager.restored_plugins:
+            logging.info(f"Restored plugins: {', '.join(backup_manager.restored_plugins)}")
+
+    # Log upgrade failure summary at the end if upgrade failed
+    if backup_manager.upgrade_failed:
+        logging.info(SEPARATOR)
+        logging.warning("MOODLE CLI UPGRADE SUMMARY: Upgrade failed!")
+        for error in backup_manager.upgrade_error_details:
+            logging.warning(f"  - {error}")
+
+
+def read_db_settings(config, configphppath, non_interactive):
+    """Return (dbname, dbuser, dbpass, dbhost) from config.php or config.ini,
+    asking for the password when needed. Aborts if they are incomplete."""
+    dbpass = ""
+    read_db_from_config = ConfigManager.get_bool(config, 'database', 'read_db_from_config', fallback=True)
+
+    if not read_db_from_config:
+        dbname = config.get('database', 'db_name', fallback='moodle')
+        dbuser = config.get('database', 'db_user', fallback='root')
+        dbhost = config.get('database', 'db_host', fallback='').strip()
+        if non_interactive:
+            # No prompt possible: take the password from the environment,
+            # which is also where the MySQL/MariaDB client tools look for it.
+            dbpass = os.environ.get('MYSQL_PWD', '')
+            if not dbpass:
+                logging.error("read_db_from_config is False and --non-interactive is set: "
+                              "provide the DB password in the MYSQL_PWD environment variable.")
+                sys.exit(1)
+        while not dbpass:
+            dbpass = prompt_db_password("Please enter DB password: ")
+    else:
+        cfg = ConfigManager.read_moodle_config(configphppath)
+        dbname = cfg.get('dbname')
+        dbuser = cfg.get('dbuser')
+        dbpass = cfg.get('dbpass')
+        dbhost = cfg.get('dbhost')
+        missing = [key for key in ('dbname', 'dbuser', 'dbpass') if cfg.get(key) is None]
+        if missing:
+            logging.error(f"Could not read {', '.join(missing)} from {configphppath}. "
+                          "Set read_db_from_config = False to configure the database in config.ini instead.")
+            sys.exit(1)
+    return dbname, dbuser, dbpass, dbhost
+
+
 def main():
     # Parse arguments before anything else so --help works without config,
     # prompts or root, and --dry-run is known before the root check.
@@ -187,34 +284,7 @@ def main():
 
     # Database dump process
     if db_dump:
-        read_db_from_config = ConfigManager.get_bool(config, 'database', 'read_db_from_config', fallback=True)
-        dbpass = ""
-
-        if not read_db_from_config:
-            dbname = config.get('database', 'db_name', fallback='moodle')
-            dbuser = config.get('database', 'db_user', fallback='root')
-            dbhost = config.get('database', 'db_host', fallback='').strip()
-            if non_interactive:
-                # No prompt possible: take the password from the environment,
-                # which is also where the MySQL/MariaDB client tools look for it.
-                dbpass = os.environ.get('MYSQL_PWD', '')
-                if not dbpass:
-                    logging.error("read_db_from_config is False and --non-interactive is set: "
-                                  "provide the DB password in the MYSQL_PWD environment variable.")
-                    sys.exit(1)
-            while not dbpass:
-                dbpass = prompt_db_password("Please enter DB password: ")
-        else:
-            cfg = ConfigManager.read_moodle_config(configphppath)
-            dbname = cfg.get('dbname')
-            dbuser = cfg.get('dbuser')
-            dbpass = cfg.get('dbpass')
-            dbhost = cfg.get('dbhost')
-            missing = [key for key in ('dbname', 'dbuser', 'dbpass') if cfg.get(key) is None]
-            if missing:
-                logging.error(f"Could not read {', '.join(missing)} from {configphppath}. "
-                              "Set read_db_from_config = False to configure the database in config.ini instead.")
-                sys.exit(1)
+        dbname, dbuser, dbpass, dbhost = read_db_settings(config, configphppath, non_interactive)
 
         restart_database_flag = resolve_option(args.restart_database, "Restart database before dump?", "n", non_interactive)
 
@@ -390,64 +460,7 @@ def main():
                 service_manager.restart_webserver("restart")
 
     runtime = int(time.time() - start_time)  # Convert to integer seconds
-    runtime_backup = backup_manager.runtime_backup
-    runtime_dump = backup_manager.runtime_dump
-    runtime_clone = backup_manager.runtime_clone
-    runtime_cliupgrade = backup_manager.runtime_cliupgrade
-
-    # Log if any operation times were recorded
-    if runtime_backup:
-        logging.info("Directory backup time needed: %d seconds", runtime_backup)
-    else:
-        runtime_backup = 0
-
-    if runtime_dump:
-        logging.info("Database dump time needed: %d seconds", runtime_dump)
-    else:
-        runtime_dump = 0
-
-    if runtime_clone:
-        logging.info("Git clone time needed: %d seconds", runtime_clone)
-    else:
-        runtime_clone = 0
-
-    if runtime_cliupgrade:
-        logging.info("Moodle CLI Upgrade time needed: %d seconds", runtime_cliupgrade)
-    else:
-        runtime_cliupgrade = 0
-
-    runtime_restore_plugins = backup_manager.runtime_restore_plugins
-    if runtime_restore_plugins:
-        logging.info("Plugin restore time needed: %d seconds", runtime_restore_plugins)
-    else:
-        runtime_restore_plugins = 0
-
-    # Log total runtime
-    logging.info("Total execution time (excluding user input): %d seconds", runtime)
-    if multithreading:
-        # Only backup, clone and dump run in parallel; compare their summed
-        # durations with the wall time of that phase alone.
-        logging.info("Time saved with multithreading: %d seconds", runtime_backup + runtime_dump + runtime_clone - lanes_runtime)
-
-    # Log failed submodules summary at the end if any failed
-    if backup_manager.failed_submodules:
-        logging.info(SEPARATOR)
-        logging.warning(f"SUBMODULE SYNC SUMMARY: {backup_manager.submodules_failed} submodule(s) failed to update")
-        logging.warning(f"Failed submodules: {', '.join(backup_manager.failed_submodules)}")
-
-    # Log plugin restore summary at the end if it ran
-    if backup_manager.restored_plugins or backup_manager.skipped_plugins:
-        logging.info(SEPARATOR)
-        logging.info(f"PLUGIN RESTORE SUMMARY: {len(backup_manager.restored_plugins)} restored, {len(backup_manager.skipped_plugins)} already present")
-        if backup_manager.restored_plugins:
-            logging.info(f"Restored plugins: {', '.join(backup_manager.restored_plugins)}")
-
-    # Log upgrade failure summary at the end if upgrade failed
-    if backup_manager.upgrade_failed:
-        logging.info(SEPARATOR)
-        logging.warning("MOODLE CLI UPGRADE SUMMARY: Upgrade failed!")
-        for error in backup_manager.upgrade_error_details:
-            logging.warning(f"  - {error}")
+    log_run_summary(backup_manager, runtime, lanes_runtime if multithreading else None)
 
     if failed_steps:
         logging.info(SEPARATOR)

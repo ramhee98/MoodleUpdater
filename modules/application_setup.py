@@ -8,6 +8,11 @@ from modules.git_manager import GitManager
 from modules.moodle_version import MoodleVersionChecker
 
 
+def running_as_root():
+    """True if the process has root privileges (real runs require them)."""
+    return os.geteuid() == 0
+
+
 class ApplicationSetup:
     """Handles configuration loading, logging setup, and initial checks."""
 
@@ -17,16 +22,21 @@ class ApplicationSetup:
         self.config_template_path = config_template_path
         self.non_interactive = non_interactive
         self.cli_dry_run = dry_run
-        self.config_manager = ConfigManager(self.config_path, pwd)
+
+        # Ensure config file exists before doing anything else, including setting up
+        # file logging (which would create the log file first)
+        self.ensure_config_exists()
 
         # Load configuration
+        self.config_manager = ConfigManager(self.config_path, pwd)
         self.config = self.config_manager.config
+
+        # Dry run must be known before anything that could change the system,
+        # self-update in particular.
+        self.dry_run = ConfigManager.get_bool(self.config, 'settings', 'dry_run') or self.cli_dry_run
 
         # Configure logging
         self.config_manager.configure_logging()
-
-        # Ensure config file exists before doing anything else with it
-        self.ensure_config_exists()
 
         # Perform initial setup tasks
         self.handle_auto_update()  # 🔹 This may modify config.ini
@@ -39,7 +49,7 @@ class ApplicationSetup:
         self.load_core_settings()
 
         # Exit script if dry run is not enabled and root permissions are missing
-        if not self.dry_run and os.geteuid() != 0:
+        if not self.dry_run and not running_as_root():
             script = os.path.join(self.pwd, 'moodle_updater.py')
             logging.error(f"This script must be run as root. Use 'sudo python3 {script}'")
             sys.exit(1)
@@ -65,8 +75,10 @@ class ApplicationSetup:
 
     def handle_auto_update(self):
         """Checks if auto-update is enabled and runs it if necessary."""
-        if ConfigManager.get_bool(self.config, 'settings', 'auto_update_script'):
-            GitManager.self_update(self.pwd, self.config_path, self.config_template_path)
+        if self.dry_run:
+            logging.info("[Dry Run] Skipping self-update (it would pull and run new code).")
+        elif ConfigManager.get_bool(self.config, 'settings', 'auto_update_script'):
+            GitManager.self_update(self.pwd, self.config_path, self.config_template_path, self.non_interactive)
         elif self.non_interactive:
             logging.info("auto_update_script is disabled; skipping self-update in non-interactive mode.")
         else:
@@ -77,8 +89,14 @@ class ApplicationSetup:
     def ensure_config_exists(self):
         """Ensures the config file exists, otherwise creates one from the template."""
         if not os.path.exists(self.config_path):
+            # File logging is not set up yet (its settings live in the missing file):
+            # report on the console only.
+            logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s",
+                                handlers=[logging.StreamHandler()])
             logging.error(f"Configuration file '{self.config_path}' not found.")
-            if os.path.exists(self.config_template_path):
+            if self.cli_dry_run:
+                logging.info("[Dry Run] Would create config.ini from config_template.ini.")
+            elif os.path.exists(self.config_template_path):
                 shutil.copy(self.config_template_path, self.config_path)
                 logging.info("Configuration file has been created.")
                 logging.info("Please edit config.ini to your needs.")

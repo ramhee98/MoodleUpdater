@@ -5,7 +5,7 @@ import time
 import threading
 import subprocess
 
-from modules.db_tools import resolve_db_tool
+from modules.db_tools import resolve_db_tool, sanitize_db_output
 
 # MySQL identifier rules: letters, digits, underscore, dollar sign (1-64 chars).
 # We also allow hyphens because Moodle deployments often use db names like
@@ -16,6 +16,10 @@ _DB_NAME_RE = re.compile(r'^[A-Za-z0-9_$\-]{1,64}$')
 
 class SystemMonitor:
     """Monitors system resource usage and database dump progress."""
+
+    # Upper bounds so a hanging client or monitor can never hold up the dump's cleanup.
+    SIZE_QUERY_TIMEOUT = 30
+    STOP_TIMEOUT = 5
 
     def __init__(self):
         self.stop_event = threading.Event()
@@ -54,13 +58,18 @@ class SystemMonitor:
         env = {**os.environ, 'MYSQL_PWD': password}
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+            # subprocess.run kills and reaps the client when the timeout expires.
+            result = subprocess.run(cmd, capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL,
+                                    timeout=self.SIZE_QUERY_TIMEOUT)
         except FileNotFoundError:
             logging.warning("Neither mariadb nor mysql client found; dump size estimate unavailable.")
             return None
+        except subprocess.TimeoutExpired:
+            logging.warning(f"Database size query did not finish within {self.SIZE_QUERY_TIMEOUT}s; dump size estimate unavailable.")
+            return None
 
         if result.returncode != 0:
-            logging.warning(f"Could not determine database size: {result.stderr.strip()}")
+            logging.warning(f"Could not determine database size: {sanitize_db_output(result.stderr, password)}")
             return None
         try:
             _, size_mb = result.stdout.strip().split('\t')
@@ -123,7 +132,7 @@ class SystemMonitor:
     @staticmethod
     def read_memory_stats():
         """Return (total, used, free, shared, buff/cache, available) in MB from `free -m`."""
-        output = subprocess.run(['free', '-m'], capture_output=True, text=True, check=True).stdout
+        output = subprocess.run(['free', '-m'], capture_output=True, text=True, check=True, timeout=10).stdout
         mem_line = next(line for line in output.splitlines() if line.startswith("Mem"))
         return tuple(map(int, mem_line.split()[1:7]))
 
@@ -216,11 +225,15 @@ class SystemMonitor:
         """Starts monitoring memory and optionally dump progress in separate threads."""
         logging.info("Starting system monitoring...")
 
-        self.memory_thread = threading.Thread(target=self._guarded, args=("Memory monitoring", self.monitor_memory_usage))
+        # Daemon threads with a bounded join in stop_monitoring(): monitoring is
+        # best effort and must never keep the update (or the process) waiting.
+        self.memory_thread = threading.Thread(target=self._guarded, args=("Memory monitoring", self.monitor_memory_usage),
+                                              name="Memory monitoring", daemon=True)
         self.memory_thread.start()
 
         self.dump_thread = threading.Thread(target=self._guarded, args=(
-            "Dump progress monitoring", self.monitor_dump_progress, dump_file, dbname, dbuser, dbpass, dbhost))
+            "Dump progress monitoring", self.monitor_dump_progress, dump_file, dbname, dbuser, dbpass, dbhost),
+            name="Dump progress monitoring", daemon=True)
         self.dump_thread.start()
 
     def stop_monitoring(self):
@@ -228,6 +241,9 @@ class SystemMonitor:
         logging.info("Stopping system monitoring...")
         self.stop_event.set()
 
+        deadline = time.monotonic() + self.STOP_TIMEOUT
         for thread in (self.memory_thread, self.dump_thread):
             if thread is not None:
-                thread.join()
+                thread.join(max(0, deadline - time.monotonic()))
+                if thread.is_alive():
+                    logging.warning(f"{thread.name} did not stop within {self.STOP_TIMEOUT}s; continuing without it.")

@@ -5,6 +5,9 @@ import re
 import sys
 from logging.handlers import RotatingFileHandler
 
+# Visual divider between sections of the log
+SEPARATOR = "-------------------------------------------------------------------------"
+
 class ConfigManager:
     """Manages configuration loading and logging setup."""
     def __init__(self, config_path, script_dir=None):

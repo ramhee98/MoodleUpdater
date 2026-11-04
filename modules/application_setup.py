@@ -3,16 +3,14 @@ import sys
 import logging
 import shutil
 import signal
-from modules.config_manager import ConfigManager
+from modules.config_manager import SEPARATOR, ConfigManager
 from modules.git_manager import GitManager
 from modules.moodle_version import MoodleVersionChecker
 
-# Constants
-SEPARATOR = "-------------------------------------------------------------------------"
 
 class ApplicationSetup:
     """Handles configuration loading, logging setup, and initial checks."""
-    
+
     def __init__(self, pwd, config_path, config_template_path, non_interactive=False, dry_run=False):
         self.pwd = pwd
         self.config_path = config_path
@@ -20,10 +18,10 @@ class ApplicationSetup:
         self.non_interactive = non_interactive
         self.cli_dry_run = dry_run
         self.config_manager = ConfigManager(self.config_path, pwd)
-        
+
         # Load configuration
         self.config = self.config_manager.config
-        
+
         # Configure logging
         self.config_manager.configure_logging()
 
@@ -138,7 +136,7 @@ class ApplicationSetup:
                     signal.alarm(0)  # Reset timeout
                     if user_input == 'c':  # Cancel case
                         logging.warning("User canceled the operation.")
-                        exit(1)
+                        sys.exit(1)
                     return valid_responses[user_input]
 
                 elif default and user_input == '':

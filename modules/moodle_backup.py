@@ -6,10 +6,10 @@ import shutil
 import subprocess
 import sys
 from modules.application_setup import ApplicationSetup
+from modules.config_manager import SEPARATOR
 from modules.db_tools import sanitize_db_output, db_host_args, resolve_db_tool
 from modules.system_monitor import SystemMonitor
 
-SEPARATOR = "-------------------------------------------------------------------------"
 
 
 def is_within(path, parent):
@@ -714,4 +714,4 @@ class MoodleBackupManager:
                 sys.exit(1)
 
         logging.info(SEPARATOR)
-        logging.info(f"Finished Moodle system check")
+        logging.info("Finished Moodle system check")

@@ -2,10 +2,8 @@ import os
 import sys
 import subprocess
 import logging
-from modules.config_manager import ConfigManager
+from modules.config_manager import SEPARATOR, ConfigManager
 
-# Constants
-SEPARATOR = "-------------------------------------------------------------------------"
 
 class GitManager:
     """Handles Git operations such as fetching commit details and self-updating the script."""
@@ -28,7 +26,7 @@ class GitManager:
             else:
                 logging.warning(f"Unexpected output format from Git for commit {commit_hash}: {output}")
                 return "Unknown", "Unknown", "Unknown"
-        
+
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to retrieve commit details for {commit_hash}: {e.stderr}")
         except FileNotFoundError:

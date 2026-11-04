@@ -13,13 +13,11 @@ from modules.application_setup import ApplicationSetup
 from modules.cli import parse_args, resolve_option
 from modules.db_tools import check_db_connection
 from modules.moodle_backup import MoodleBackupManager, is_within
-from modules.config_manager import ConfigManager
+from modules.config_manager import SEPARATOR, ConfigManager
 from modules.moodle_version import MoodleVersionChecker
 from modules.service_manager import ServiceManager
 from modules.steps import run_step, run_steps_concurrently
 
-# Constants
-SEPARATOR = "-------------------------------------------------------------------------"
 
 def read_text_file(file_path):
     """Read a file the update depends on, or abort before anything has been changed."""

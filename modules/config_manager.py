@@ -61,19 +61,21 @@ class ConfigManager:
     @staticmethod
     def read_moodle_config(config_path):
         """Reads the Moodle config.php file and extracts $CFG->dbhost, $CFG->dbname,
-        $CFG->dbuser and $CFG->dbpass. Values may use single or double quotes and may
-        be empty; missing settings are returned as None."""
+        $CFG->dbuser and $CFG->dbpass.
+
+        Only plain single- or double-quoted string literals are understood. Comments
+        are ignored and, as in PHP, the last assignment wins. A setting that is
+        missing, or whose last assignment is not a plain literal (a function call,
+        a constant, a string with variable interpolation), is returned as None, so
+        the caller fails instead of using a wrong value."""
         cfg_values = {}
 
         try:
             with open(config_path, 'r') as file:
-                content = file.read()
+                content = ConfigManager._strip_php_comments(file.read())
 
             for key in ('dbhost', 'dbname', 'dbuser', 'dbpass'):
-                # A quoted PHP string at the start of a line (so commented-out lines
-                # don't match); backslash escapes are allowed inside it.
-                match = re.search(rf"^\s*\$CFG->{key}\s*=\s*(['\"])((?:\\.|(?!\1).)*)\1\s*;", content, re.M)
-                cfg_values[key] = ConfigManager._php_unescape(match.group(2), match.group(1)) if match else None
+                cfg_values[key] = ConfigManager._last_literal_assignment(content, key)
 
         except FileNotFoundError:
             logging.error(f"File {config_path} not found.")
@@ -83,13 +85,70 @@ class ConfigManager:
         return cfg_values
 
     @staticmethod
+    def _strip_php_comments(content):
+        """Remove //, # and /* */ comments, leaving string literals untouched."""
+        out, i, n = [], 0, len(content)
+        while i < n:
+            char = content[i]
+            if char in "'\"":
+                end = i + 1
+                while end < n and content[end] != char:
+                    end += 2 if content[end] == '\\' else 1
+                out.append(content[i:end + 1])
+                i = end + 1
+            elif content.startswith('/*', i):
+                end = content.find('*/', i + 2)
+                out.append(' ')
+                i = n if end < 0 else end + 2
+            elif content.startswith('//', i) or char == '#':
+                end = content.find('\n', i)
+                i = n if end < 0 else end
+            else:
+                out.append(char)
+                i += 1
+        return ''.join(out)
+
+    @staticmethod
+    def _last_literal_assignment(content, key):
+        """Value of the last `$CFG->key = ...;` in content, or None if there is none
+        or it is not a plain string literal."""
+        assignments = list(re.finditer(rf"\$CFG\s*->\s*{key}\s*=\s*", content))
+        if not assignments:
+            return None
+        start = assignments[-1].end()
+        literal = re.match(r"(['\"])((?:\\.|(?!\1).)*)\1\s*;", content[start:], re.S)
+        if not literal:
+            logging.error(f"$CFG->{key} in config.php is not a plain string literal; cannot read it.")
+            return None
+        quote, raw = literal.group(1), literal.group(2)
+        if quote == '"' and re.search(r'(?<!\\)(?:\\\\)*\$[A-Za-z_{]', raw):
+            logging.error(f"$CFG->{key} in config.php uses variable interpolation; cannot read it.")
+            return None
+        return ConfigManager._php_unescape(raw, quote)
+
+    # Escapes PHP understands in double-quoted strings (besides octal, \x and \u{})
+    _DOUBLE_QUOTE_ESCAPES = {'n': '\n', 't': '\t', 'r': '\r', 'v': '\v', 'e': '\x1b', 'f': '\f',
+                             '\\': '\\', '$': '$', '"': '"'}
+
+    @staticmethod
     def _php_unescape(value, quote):
-        """Undo PHP's escapes in a quoted literal: an escaped backslash, an escaped
-        quote character and (in double quotes) an escaped dollar sign."""
-        escapes = {'\\': '\\', quote: quote}
-        if quote == '"':
-            escapes['$'] = '$'
-        return re.sub(r'\\(.)', lambda m: escapes.get(m.group(1), '\\' + m.group(1)), value)
+        """Undo PHP's escapes in a quoted literal. Single quotes only know an escaped
+        backslash and quote; double quotes also know \\n, \\t, octal, \\x and \\u{}.
+        Unknown escapes keep their backslash, as in PHP."""
+        if quote == "'":
+            return re.sub(r"\\([\\'])", r"\1", value)
+
+        def replace(match):
+            escape = match.group(1)
+            if escape[0] in '01234567':
+                return chr(int(escape, 8) & 0xFF)
+            if escape[0] == 'x':
+                return chr(int(escape[1:], 16))
+            if escape[0] == 'u':
+                return chr(int(escape[2:-1], 16))
+            return ConfigManager._DOUBLE_QUOTE_ESCAPES.get(escape, '\\' + escape)
+
+        return re.sub(r'\\([0-7]{1,3}|x[0-9A-Fa-f]{1,2}|u\{[0-9A-Fa-f]+\}|.)', replace, value, flags=re.S)
 
     @staticmethod
     def check_config_differences(config_path, template_path):

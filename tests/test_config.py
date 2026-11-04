@@ -72,3 +72,32 @@ def test_config_differences_compare_keys_only(tmp_path, caplog):
     assert "missing from config.ini (see config_template.ini): php_cli_user" in caplog.text
     assert "does not know: old_key" in caplog.text
     assert "repo" not in caplog.text
+
+
+# --- M01: comments, repeated assignments, escapes, dynamic values ---
+
+def test_block_comments_are_ignored(tmp_path):
+    cfg = _read(tmp_path, "/*\n$CFG->dbname = 'commented';\n*/\n$CFG->dbname = 'real';\n"
+                          "$CFG->dbuser = 'u'; # $CFG->dbuser = 'x';\n")
+    assert cfg["dbname"] == "real"
+    assert cfg["dbuser"] == "u"
+
+
+def test_last_assignment_wins_like_php(tmp_path):
+    cfg = _read(tmp_path, "$CFG->dbname = 'first';\n$CFG->dbname = 'second';\n")
+    assert cfg["dbname"] == "second"
+
+
+def test_comment_markers_inside_strings_are_kept(tmp_path):
+    cfg = _read(tmp_path, "$CFG->dbpass = 'a//b#c/*d*/';\n")
+    assert cfg["dbpass"] == "a//b#c/*d*/"
+
+
+def test_double_quoted_escapes(tmp_path):
+    cfg = _read(tmp_path, '$CFG->dbpass = "a\\nb\\t\\x41\\101\\u{42}\\q";\n')
+    assert cfg["dbpass"] == "a\nb\tAAB\\q"
+
+
+@pytest.mark.parametrize("value", ['getenv("DBPASS")', '"pre$suffix"', "DB_PASS"])
+def test_dynamic_values_are_refused(tmp_path, value):
+    assert _read(tmp_path, f"$CFG->dbpass = {value};\n")["dbpass"] is None

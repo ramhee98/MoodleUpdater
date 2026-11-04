@@ -15,16 +15,16 @@
 - **Git Integration**:
   - Clone the configured Moodle repository (for example from GitHub).
   - Checkout specific branches and sync submodules.
-  - Submodules are updated individually with per-submodule error handling. If a submodule's remote tracking branch doesn't exist, the update continues with the remaining submodules.
-  - A summary of successful and failed submodule updates is displayed at the end of the process.
+  - Submodules are updated individually and every failure is logged. If any submodule fails to sync or update, the new clone is not used: the existing code stays live and the run exits with code 1. A missing submodule usually means a missing plugin.
+  - A summary of failed submodule updates is displayed at the end of the process.
   - Before updating Moodle, MoodleUpdater compares the local Moodle version with the version in the configured Git repository and branch. It refuses to "update" to an older version.
 
 - **Automation**:
   - Multithreaded execution for combined tasks.
   - Prompts to confirm actions with optional default responses.
-  - Optionally stop Apache or Nginx while the update runs, start it again afterwards, and restart it after the Moodle CLI upgrade.
+  - Optionally stop Apache or Nginx for the whole update, including the Moodle CLI upgrade and its checks, and start it again at the end.
   - Optionally perform a Moodle CLI upgrade via `admin/cli/upgrade.php`, with pre-upgrade and post-upgrade system checks.
-  - The script runs `admin/cli/checks.php` before and after the upgrade to detect potential issues.
+  - The script runs `admin/cli/checks.php` before and after the upgrade to detect potential issues. Its exit code decides: 0 (OK) and 1 (warnings) are fine. 2 (error/critical), 3 (unknown), any other code, or a missing script count as a failed check.
   - Optionally enable Moodle Maintenance Mode during Moodle CLI upgrade.
   - Optionally restart the MariaDB/MySQL service before a database dump.
 
@@ -98,7 +98,7 @@
 3. Set up the configuration file:
 
    Copy `config_template.ini` to `config.ini` (or let the script auto-create it on first startup) and adjust it to your needs. The `config.ini` file contains the following settings:
-   - **dry_run**: Enable dry run mode to simulate operations without making any changes.
+   - **dry_run**: Enable dry run mode to simulate operations without making any changes (see [Dry Run](#dry-run)).
    - **auto_update_script**: Automatically check and pull updates for MoodleUpdater from the Git repository at the start. Default is False.
    - **repo**: URL of the Moodle repository to clone.
    - **branch**: Branch of the Moodle repository to checkout.
@@ -107,10 +107,10 @@
    - **chown_user**: Specifies the user to set as the owner for Moodle files and directories, useful for setting file ownership after cloning or updating Moodle (e.g., www-data).
    - **chown_group**: Specifies the group to set as the owner for Moodle files and directories, ensuring correct group ownership and permissions (e.g., www-data).
    - **php_cli_user**: Optional. When set (e.g. `www-data`) and the script runs as root, Moodle's PHP CLI scripts (`upgrade.php`, `checks.php`, `maintenance.php`) run as this user through `runuser`, as Moodle recommends, so core and plugin upgrade code does not run with root privileges. Leave it empty to keep running them as root. Before you switch, make sure `moodledata` is writable by that user.
-   - **folder_backup_path**: Directory where backup folders and the lock file are stored. `pwd` or an empty value means the MoodleUpdater directory itself (not the current working directory).
+   - **folder_backup_path**: Directory where backup folders are stored. `pwd` or an empty value means the MoodleUpdater directory itself (not the current working directory).
    - **db_dump_path**: Directory where DB dumps are stored. `pwd` or an empty value means the MoodleUpdater directory itself.
    - Neither location may be inside the Moodle code folder (`path`/`moodle`), because the git clone replaces that folder. The script refuses to start if it is. If they are inside `path`, a full backup skips earlier backups, dumps and the lock file instead of copying them again.
-   - **read_db_from_config**: Read the database host, name, username and password from `config.php`. Default is True. Single- and double-quoted values are both supported.
+   - **read_db_from_config**: Read the database host, name, username and password from `config.php`. Default is True. Plain single- or double-quoted strings are supported. Comments are ignored and the last assignment wins, as in PHP. If a value is computed (for example `getenv()` or variable interpolation), the run stops instead of guessing.
    - **db_name**: Name of the Moodle database, ignored if read_db_from_config is True.
    - **db_user**: Database username used for DB dump, ignored if read_db_from_config is True.
    - **db_host**: Database host, ignored if read_db_from_config is True. Leave it empty to use the local server.
@@ -185,7 +185,7 @@ python3 moodle_updater.py [options]
 - `--moodle-cli-upgrade` - Start Moodle CLI upgrade process afterwards (default: True unless non-interactive is set, then default: False)
 - `--enable-maintenance-mode` - Enable Moodle Maintenance Mode during CLI upgrade (default: True unless non-interactive is set, then default: False)
 - `--force-continue` - Auto-continue even if system check reports errors (default: False)
-- `--restart-webserver` - Stop the webserver (Apache or Nginx) before the backup/dump/clone, start it again afterwards, and restart it after the CLI upgrade (default: True unless non-interactive is set, then default: False)
+- `--restart-webserver` - Stop the webserver (Apache or Nginx) before the backup/dump/clone and keep it stopped through the CLI upgrade and its checks; start it again at the end, also after a failure (default: True unless non-interactive is set, then default: False). If the webserver can't be stopped (or isn't installed), nothing is changed and the run exits with code 1.
 - `--restart-database` - Restart the MariaDB/MySQL service before the dump (default: False). Other services such as PostgreSQL or Redis are never restarted.
 - `--verbose` - Enable verbose mode (default: False)
 - `--full-backup` - Backup entire folder (containing moodle, moodledata, and data) (default: False) (used only if --directory-backup is set)
@@ -193,7 +193,7 @@ python3 moodle_updater.py [options]
 - `--restore-submodules` - Restore git submodules from backup (default: False) (requires --directory-backup enabled) (automatically sets --sync-submodules-off to True)
 - `--restore-plugins` - Copy third-party plugins present in the directory backup but missing from the new clone (requires --directory-backup and --git-clone enabled)
 - `--restore-plugins-manual` - Prompt y/n for each plugin instead of restoring all of them (default: False) (used only with --restore-plugins; requires interactive mode)
-- `--dry-run` - Run in dry run mode without making any changes (default: False). Does not require root.
+- `--dry-run` - Run in dry run mode without making any changes (default: False). Does not require root. See [Dry Run](#dry-run).
 
 `--restore-submodules` and `--restore-plugins` always restore from the directory backup made in the same run, never from an older backup that happens to be on disk.
 
@@ -241,11 +241,11 @@ python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --res
 
 3. **Git Operations**:
    - Clone the Moodle repository and check out the configured branch.
-   - Copy `config.php` from the old installation into the new clone (or from another path you enter, or skip it).
+   - Copy `config.php` from the old installation into the new clone (or from another path you enter, or skip it). The copy keeps the original's permissions, minus any group/world write bit (default `0640` when unknown). A `config.php` that the cloned repository itself contains (even a symlink) is replaced, never written through.
    - Sync submodules, or restore them from the directory backup with `--restore-submodules`.
 
 4. **Multithreading**:
-   - The database dump runs in parallel with the directory backup and git clone. The backup and the clone run one after the other, because the clone replaces the code the backup protects.
+   - The database dump runs in parallel with the directory backup and git clone. The backup and the clone run one after the other, because the clone replaces the code the backup protects. The new code is only *prepared* in parallel: it is put in place after the dump (and every other step) has succeeded.
 
 5. **Moodle CLI Upgrade**:
    - After updating Moodle, you can run the Moodle upgrade script (`admin/cli/upgrade.php`) automatically.
@@ -253,7 +253,8 @@ python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --res
    - You will be asked whether to enable Maintenance Mode before upgrading.
    - If enabled, Maintenance Mode will be automatically disabled once the upgrade is complete.
    - Any errors encountered during the CLI upgrade are logged.
-   - If the web server was stopped for the update, it is started again before the upgrade and restarted after it.
+   - If the web server was stopped for the update, it stays stopped during the upgrade and its checks and is started again at the end.
+   - Maintenance mode is required to work when requested: if it can't be enabled, the upgrade is not started; if it can't be disabled afterwards, the run exits with code 1 and logs the command to disable it by hand.
    - The upgrade is skipped if any earlier step failed (see [Failure Handling and Exit Codes](#failure-handling-and-exit-codes)).
 
 ### Key Prompts
@@ -265,7 +266,7 @@ python3 moodle_updater.py --directory-backup --git-clone --restore-plugins --res
 ### Logs and Outputs
 
 - Backups and dumps are timestamped for easy tracking.
-- Backup folders are created with mode `0700` and dumps with `0600`, because they contain `config.php` (with the DB password) and all user data. Only root can read them.
+- Backup folders are created with mode `0700` and dumps with `0600`, because they contain `config.php` (with the DB password) and all user data. Only root can read them. The backup is copied inside a private `<moodle>_bak_inprogress_<timestamp>` folder and moved into place when complete. Dumps are written to a hidden `.<db>_<timestamp>.partial.sql` file and renamed when complete. A failed backup or dump is deleted, and an existing file is never overwritten.
 - All errors are reported to the terminal and the log file, including failed database connections or file operations.
 
 ### Non-Interactive Mode
@@ -274,7 +275,8 @@ For automated deployments and scripting, MoodleUpdater supports a non-interactiv
 
 - Use `--non-interactive` to run without user prompts
 - The "Pull MoodleUpdater from GitHub?" prompt is skipped; self-update only runs when `auto_update_script = True`
-- The script never waits for input. If the Moodle system check reports errors, it stops before the upgrade and continues after it, unless `--force-continue` is set
+- The script never waits for input. If the Moodle system check before the upgrade fails, the upgrade is skipped unless `--force-continue` is set. A failed check after the upgrade makes the run exit with code 1
+- Git and SSH never prompt for credentials (`GIT_TERMINAL_PROMPT=0`, SSH batch mode, stdin closed). Credentials that are already set up (credential helpers, SSH keys or agents, deploy tokens) keep working. An explicitly set `GIT_SSH_COMMAND` is respected
 - With `read_db_from_config = False`, the DB password is read from the `MYSQL_PWD` environment variable
 - In non-interactive mode, all operations default to `False` unless explicitly enabled with command-line flags
 - Combine with specific operation flags to control which tasks to execute
@@ -291,17 +293,32 @@ python3 moodle_updater.py --non-interactive --directory-backup --db-dump --git-c
 Each step reports whether it succeeded, and steps that depend on a failed step are skipped:
 
 - If the directory backup fails, the git clone does not run, so the existing Moodle code is left untouched.
-- The git clone is built in a hidden staging directory next to the Moodle folder (`.<moodle>_new_<timestamp>`). The existing code is replaced only after clone, checkout, submodules and `config.php` have all succeeded, so a failed clone (for example a network error) leaves the site unchanged. During the clone you need enough free disk space for a second copy of the code. The Moodle code folder must not be a mount point, because the swap renames it.
+- The git clone is built in a private, hidden staging directory next to the Moodle folder (`.<moodle>_new_<timestamp>`). It contains clone, checkout, submodules, `config.php`, restored plugins and ownership. The existing code is replaced only after all of these **and the directory backup and database dump** have succeeded, so a failed step (for example a network error or a failed dump) leaves the site unchanged. During the clone you need enough free disk space for a second copy of the code. The Moodle code folder must not be a mount point, because the swap renames it.
+- The checked-out tree's `version.php` is compared with the installed one before the swap, and an older clone is refused. If either version can't be read, a warning is logged and the update proceeds.
+- If moving the new code into place fails, the previous code is moved back. If even that fails, the log names the exact `mv` command that restores the previous code, which is kept intact.
 - If the directory backup, database dump, git clone or plugin restore fails, the Moodle CLI upgrade is skipped, because the upgrade changes the database schema and cannot be undone.
+- Stopping or starting the webserver, restarting the database, and enabling or disabling maintenance mode all count as steps: a failure makes the run exit with code 1.
 - Unexpected errors in background threads are written to the log with a traceback and count as failures.
-- With `--restart-webserver`, the webserver is always started again, also after an error or Ctrl-C. Maintenance mode is always disabled again after the CLI upgrade, even if the upgrade crashes.
+- With `--restart-webserver`, the webserver is always started again, also after an error or Ctrl-C (even one during the stop). Maintenance mode is always disabled again after the CLI upgrade, even if the upgrade crashes.
+- If the pre-check or the CLI upgrade fails after the new code is already in place, maintenance mode is disabled and the webserver is started again. The site then runs the new code against the old or partially upgraded database until you fix the problem and re-run with `--moodle-cli-upgrade`, or restore the backup and dump.
+- Only one run per Moodle instance at a time: a lock keyed by the canonical path of the Moodle code folder is taken in `/run/moodle_updater` (root-only; override with the `MOODLE_UPDATER_LOCK_DIR` environment variable).
 - A `FAILED STEPS` summary is logged at the end of the run.
 
 Exit codes:
 
-- `0`: every selected step succeeded (failed submodule updates are reported as warnings only)
+- `0`: every selected step succeeded, including the service and maintenance-mode actions and the system check after the upgrade
 - `1`: at least one step failed or was skipped because of an earlier failure, or the run was aborted
 - `2`: invalid command-line options
+
+### Dry Run
+
+`--dry-run` (or `dry_run = True`) logs what would happen without changing anything:
+
+- no self-update (`git pull`), even when `auto_update_script = True`
+- no backup, dump, clone, lock file, `config.ini` creation, service, maintenance-mode or PHP command
+- no database connection: neither the connection check nor the dump-size query runs
+
+The only things a dry run writes are its log output. If `log_to_file` is enabled, that includes the log file. It does read the live installation and, for the remote version check, fetches `version.php` from the configured repository over HTTP.
 
 ## Multithreading Efficiency
 

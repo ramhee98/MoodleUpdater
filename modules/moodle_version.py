@@ -40,17 +40,23 @@ class MoodleVersionChecker:
             logging.error(f"Error reading Moodle version: {e}")
             return "Unknown", "Unknown"
 
+    def _raw_base_url(self):
+        """Repository URL without a trailing slash or .git suffix. Only the suffix
+        is removed: str.replace('.git', '') also mangled hosts like code.gitlab.example."""
+        base = self.repo_url.rstrip('/')
+        return base[:-len('.git')] if base.endswith('.git') else base
+
     def get_remote_version(self):
         """Retrieve Moodle version information from the remote Git repository."""
         # Try new structure first (Moodle 5.1+)
-        version_url = f"{self.repo_url.replace('.git', '')}/raw/{self.branch}/public/version.php"
+        version_url = f"{self._raw_base_url()}/raw/{self.branch}/public/version.php"
 
         try:
             response = requests.get(version_url, timeout=10)
             
             # If 404, try old structure (Moodle < 5.1)
             if response.status_code == 404:
-                version_url = f"{self.repo_url.replace('.git', '')}/raw/{self.branch}/version.php"
+                version_url = f"{self._raw_base_url()}/raw/{self.branch}/version.php"
                 response = requests.get(version_url, timeout=10)
             
             if response.status_code == 200:

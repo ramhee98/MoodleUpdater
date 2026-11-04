@@ -241,9 +241,10 @@ def main():
         db_dump_path = pwd
 
     # The git clone replaces the Moodle code directory and a partial backup copies
-    # it: backups or dumps stored inside it would be deleted or copied into themselves.
+    # it: backups, dumps or the lock file (kept in folder_backup_path) stored inside
+    # it would be deleted or copied into themselves.
     if dir_backup or git_clone:
-        for setting, location, used in (("folder_backup_path", folder_backup_path, dir_backup),
+        for setting, location, used in (("folder_backup_path", folder_backup_path, True),
                                          ("db_dump_path", db_dump_path, db_dump)):
             if used and is_within(location, full_path):
                 logging.error(f"{setting} ({location}) is inside the Moodle code directory {full_path}. "
@@ -380,6 +381,11 @@ def main():
                 restore_all = ApplicationSetup.confirm(
                     "Restore all missing plugins automatically? (No lets you choose each one)")
                 restore_plugins_mode = "auto" if restore_all else "manual"
+
+    if not git_clone:
+        for flag, enabled in (("--restore-submodules", args.restore_submodules), ("--restore-plugins", args.restore_plugins)):
+            if enabled:
+                logging.warning(f"{flag} has no effect without --git-clone; ignoring it.")
 
     if moodle_cli_upgrade:
         moodle_maintenance_mode_flag = resolve_option(args.enable_maintenance_mode, "Enable Moodle Maintenance Mode during Moodle CLI Upgrade?", "y", non_interactive)

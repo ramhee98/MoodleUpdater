@@ -54,6 +54,19 @@ def check_db_connection(dbname, dbuser, dbpass):
     return result.returncode == 0, _sanitize_db_output(result.stderr, dbpass)
 
 
+def _tree_size(path):
+    """Total size in bytes of the files below path. Symlinks count as themselves
+    (lstat), so dangling links don't raise; unreadable entries are skipped."""
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
 class MoodleBackupManager:
     """Manages directory backups, database dumps, and Git clone operations for Moodle."""
 
@@ -124,20 +137,18 @@ class MoodleBackupManager:
         logging.info(f"Starting {backup_type} backup from {source_path} to {backup_folder}")
 
         if self.dry_run:
-            logging.info(f"[Dry Run] Would run: rsync {' '.join(exclude_args)} {source_path} {backup_folder}")
+            logging.info(f"[Dry Run] Would run: rsync -a {' '.join(exclude_args)} {source_path} {backup_folder}")
             self.backup_folder = backup_folder
         else:
             try:
                 # The backup holds config.php (DB password) and user files: keep it
                 # private to root while copying and afterwards.
                 os.makedirs(backup_folder, mode=0o700)
-                subprocess.run(['rsync', '-r', *exclude_args, source_path, backup_folder], check=True)
+                # -a keeps symlinks, permissions, ownership and timestamps so the
+                # backup can be restored as-is (-r alone silently skips symlinks).
+                subprocess.run(['rsync', '-a', *exclude_args, source_path, backup_folder], check=True)
                 os.chmod(backup_folder, 0o700)
-                size = sum(
-                    os.path.getsize(os.path.join(root, file))
-                    for root, _, files in os.walk(backup_folder)
-                    for file in files
-                )
+                size = _tree_size(backup_folder)
                 logging.info(f"Backup completed and saved in {backup_folder} - ({size / (1024 * 1024 * 1024):.2f} GB)")
                 self.backup_folder = backup_folder
             except subprocess.CalledProcessError as e:

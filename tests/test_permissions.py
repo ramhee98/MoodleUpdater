@@ -63,3 +63,22 @@ def test_lock_file_is_private_and_exclusive(tmp_path):
 def test_lock_can_be_reacquired_after_release(tmp_path):
     moodle_updater.acquire_instance_lock(str(tmp_path), "moodle").close()
     moodle_updater.acquire_instance_lock(str(tmp_path), "moodle").close()
+
+
+def test_backup_keeps_symlinks_and_modes(tmp_path):
+    source = tmp_path / "www" / "moodle"
+    source.mkdir(parents=True)
+    script = source / "run.sh"
+    script.write_text("#!/bin/sh\n")
+    os.chmod(script, 0o750)
+    os.symlink("run.sh", source / "link.sh")
+    os.symlink("does-not-exist", source / "dangling")
+    backups = tmp_path / "backups"
+    backups.mkdir()
+
+    manager = MoodleBackupManager(str(tmp_path / "www"), "moodle", str(backups))
+    assert manager.dir_backup(full_backup=False) is True
+    copy = backups / os.path.basename(manager.backup_folder)
+    assert os.readlink(copy / "link.sh") == "run.sh"
+    assert os.path.islink(copy / "dangling")
+    assert _mode(copy / "run.sh") == 0o750

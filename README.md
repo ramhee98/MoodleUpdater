@@ -9,7 +9,7 @@
   - Easily specify repository URL, branch, Moodle path, and folder name.
 
 - **Backup Functionality**:
-  - Perform a full or partial backup of your Moodle directory.
+  - Perform a full or partial backup of your Moodle directory with `rsync -a`, which keeps symlinks, permissions, ownership and timestamps.
   - Backup the Moodle database using `mysqldump`.
 
 - **Git Integration**:

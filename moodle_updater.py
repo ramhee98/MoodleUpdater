@@ -135,7 +135,7 @@ def main():
         db_dump_path = config.get('settings', 'db_dump_path', fallback='pwd')
         if db_dump_path in ["pwd", ""]:
             db_dump_path = pwd
-        read_db_from_config = config.get('database', 'read_db_from_config', fallback="True") == "True"
+        read_db_from_config = ConfigManager.get_bool(config, 'database', 'read_db_from_config', fallback=True)
         dbpass = ""
 
         if not read_db_from_config:

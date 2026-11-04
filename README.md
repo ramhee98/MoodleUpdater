@@ -117,6 +117,8 @@
       - `ERROR`: Errors that need immediate attention.  
       - `CRITICAL`: Severe errors causing program termination.  
 
+   Boolean settings accept `True`/`False`, `yes`/`no`, `on`/`off` or `1`/`0`, in any case. Any other value is an error, so a typo can't quietly switch off `dry_run`.
+
    `config.ini` will be created on startup if not existing.
    Edit `config.ini` to match your Moodle setup:
    ```ini

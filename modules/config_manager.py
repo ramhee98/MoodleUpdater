@@ -2,6 +2,7 @@ import configparser
 import logging
 import os
 import re
+import sys
 from logging.handlers import RotatingFileHandler
 
 class ConfigManager:
@@ -42,6 +43,17 @@ class ConfigManager:
             logging.info("Logging to console enabled.")
         if log_to_file:
             logging.info(f"Logging to file enabled. File path: {log_file_path}")
+
+    @staticmethod
+    def get_bool(config, section, option, fallback=False):
+        """Read a boolean setting. Accepts true/false, yes/no, on/off and 1/0 in any
+        case; anything else aborts instead of silently meaning False (a mistyped
+        dry_run must never turn into a real run)."""
+        try:
+            return config.getboolean(section, option, fallback=fallback)
+        except ValueError:
+            logging.error(f"Invalid boolean for [{section}] {option}: {config.get(section, option)!r}. Use True or False.")
+            sys.exit(1)
 
     @staticmethod
     def read_moodle_config(config_path):

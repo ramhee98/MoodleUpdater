@@ -48,8 +48,7 @@ class ApplicationSetup:
 
     def handle_auto_update(self):
         """Checks if auto-update is enabled and runs it if necessary."""
-        auto_update = self.config.get('settings', 'auto_update_script', fallback=False)
-        if auto_update == "True":
+        if ConfigManager.get_bool(self.config, 'settings', 'auto_update_script'):
             GitManager.self_update(self.pwd, self.config_path, self.config_template_path)
         elif self.non_interactive:
             logging.info("auto_update_script is disabled; skipping self-update in non-interactive mode.")
@@ -72,7 +71,7 @@ class ApplicationSetup:
 
     def load_core_settings(self):
         """Loads core settings like paths, dry-run mode, and Moodle version."""
-        self.dry_run = self.config.get('settings', 'dry_run', fallback="False") == "True" or self.cli_dry_run
+        self.dry_run = ConfigManager.get_bool(self.config, 'settings', 'dry_run') or self.cli_dry_run
         self.moodle = self.config.get('settings', 'moodle', fallback='moodle')
         self.path = self.config.get('settings', 'path', fallback=self.pwd)
         self.full_path = os.path.join(self.path, self.moodle)

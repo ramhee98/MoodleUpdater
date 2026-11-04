@@ -102,7 +102,8 @@ class ApplicationSetup:
         Returns:
         - True if user confirms (y)
         - False if user declines (n)
-        - None if user cancels (c) or timeout occurs with no valid default.
+        - None if timeout occurs or stdin is closed with no valid default.
+        Answering 'c' exits the script.
         """
         valid_responses = {'y': True, 'n': False, 'c': None}
         option = "Yes(y)/No(n)/Cancel(c)" + (f" Default={default}" if default else "")
@@ -129,6 +130,11 @@ class ApplicationSetup:
         except TimeoutError:  # Catch built-in TimeoutError
             print("\n")
             logging.warning(f"Timeout reached! Using default response: {default or 'No response'}")
+            return valid_responses.get(default.lower(), None)
+
+        except EOFError:  # stdin closed (cron, pipe): nobody can answer
+            print()
+            logging.warning(f"No input available for '{question}'. Using default response: {default or 'No response'}")
             return valid_responses.get(default.lower(), None)
 
         finally:

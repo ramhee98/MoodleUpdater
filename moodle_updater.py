@@ -74,7 +74,8 @@ def main():
         path=path,
         moodle=moodle,
         folder_backup_path=folder_backup_path,
-        dry_run=dry_run
+        dry_run=dry_run,
+        non_interactive=non_interactive,
     )
 
     # Acquire a per-instance lock so two concurrent moodle_updater.py runs
@@ -130,6 +131,14 @@ def main():
         if not read_db_from_config:
             dbname = config.get('database', 'db_name', fallback='moodle')
             dbuser = config.get('database', 'db_user', fallback='root')
+            if non_interactive:
+                # No prompt possible: take the password from the environment,
+                # which is also where the MySQL/MariaDB client tools look for it.
+                dbpass = os.environ.get('MYSQL_PWD', '')
+                if not dbpass:
+                    logging.error("read_db_from_config is False and --non-interactive is set: "
+                                  "provide the DB password in the MYSQL_PWD environment variable.")
+                    sys.exit(1)
             while not dbpass.strip():
                 dbpass = input("Please enter DB password: ").strip()
         else:

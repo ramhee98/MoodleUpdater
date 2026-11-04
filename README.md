@@ -260,6 +260,8 @@ For automated deployments and scripting, MoodleUpdater supports a non-interactiv
 
 - Use `--non-interactive` to run without user prompts
 - The "Pull MoodleUpdater from GitHub?" prompt is skipped; self-update only runs when `auto_update_script = True`
+- The script never waits for input. If the Moodle system check reports errors, it stops before the upgrade and continues after it, unless `--force-continue` is set
+- With `read_db_from_config = False`, the DB password is read from the `MYSQL_PWD` environment variable
 - In non-interactive mode, all operations default to `False` unless explicitly enabled with command-line flags
 - Combine with specific operation flags to control which tasks to execute
 - Perfect for CI/CD pipelines, cron jobs, and automated update scripts

@@ -45,11 +45,12 @@ def resolve_db_tool(mariadb_name, mysql_name):
 class MoodleBackupManager:
     """Manages directory backups, database dumps, and Git clone operations for Moodle."""
 
-    def __init__(self, path, moodle, folder_backup_path, dry_run=False):
+    def __init__(self, path, moodle, folder_backup_path, dry_run=False, non_interactive=False):
         self.path = path
         self.moodle = moodle
         self.folder_backup_path = folder_backup_path
         self.dry_run = dry_run
+        self.non_interactive = non_interactive
         self.runtime_backup = None
         self.runtime_dump = None
         self.runtime_clone = None
@@ -585,13 +586,20 @@ class MoodleBackupManager:
             logging.critical(f"Unexpected error while running Moodle system check ({phase}): {str(e)}")
             error = True
 
-        if error:
+        if error and not force_continue:
             timeout = 60
-            if not force_continue:
+            if self.non_interactive:
+                # Nobody can answer: behave as if the prompt timed out (stop before
+                # the upgrade, carry on after it). Use --force-continue to override.
+                proceed = auto_continue_choice == "y"
+                logging.warning(f"Errors detected in Moodle check ({phase}); non-interactive mode, "
+                                f"{'continuing' if proceed else 'not continuing'} (use --force-continue to override).")
+            else:
                 logging.info(f"Pausing for manual intervention... (script will continue automatically in {timeout}s)")
-                if not ApplicationSetup.confirm(f"Errors detected in Moodle check. Do you want to continue?", auto_continue_choice, timeout):
-                    logging.critical(f"Execution stopped due to errors in Moodle system check ({phase}).")
-                    sys.exit(1)
+                proceed = ApplicationSetup.confirm("Errors detected in Moodle check. Do you want to continue?", auto_continue_choice, timeout)
+            if not proceed:
+                logging.critical(f"Execution stopped due to errors in Moodle system check ({phase}).")
+                sys.exit(1)
 
         logging.info(SEPARATOR)
         logging.info(f"Finished Moodle system check")

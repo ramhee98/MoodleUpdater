@@ -103,6 +103,7 @@
    - **moodle**: Name of the Moodle folder within the specified path.
    - **chown_user**: Specifies the user to set as the owner for Moodle files and directories, useful for setting file ownership after cloning or updating Moodle (e.g., www-data).
    - **chown_group**: Specifies the group to set as the owner for Moodle files and directories, ensuring correct group ownership and permissions (e.g., www-data).
+   - **php_cli_user**: Optional. When set (e.g. `www-data`) and the script runs as root, Moodle's PHP CLI scripts (`upgrade.php`, `checks.php`, `maintenance.php`) run as this user through `runuser`, as Moodle recommends, so core and plugin upgrade code does not run with root privileges. Leave it empty to keep running them as root. Before you switch, make sure `moodledata` is writable by that user.
    - **folder_backup_path**: Custom directory where backup files will be stored. If left blank, the current working directory will be used.
    - **db_dump_path**: Custom directory where DB dumps will be stored. If left blank, the current working directory will be used.
    - **read_db_from_config** Read database name, username and password from `config.php`, default is True
@@ -134,6 +135,7 @@
    moodle = moodle
    chown_user = www-data
    chown_group = www-data
+   php_cli_user =
    folder_backup_path = /var/www/moodle
    db_dump_path = /var/www/moodle/db_dump
    [database]

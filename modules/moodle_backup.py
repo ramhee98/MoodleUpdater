@@ -70,12 +70,14 @@ def _tree_size(path):
 class MoodleBackupManager:
     """Manages directory backups, database dumps, and Git clone operations for Moodle."""
 
-    def __init__(self, path, moodle, folder_backup_path, dry_run=False, non_interactive=False):
+    def __init__(self, path, moodle, folder_backup_path, dry_run=False, non_interactive=False, php_cli_user=None):
         self.path = path
         self.moodle = moodle
         self.folder_backup_path = folder_backup_path
         self.dry_run = dry_run
         self.non_interactive = non_interactive
+        # Run Moodle's PHP CLI scripts as this user instead of root (None: current user)
+        self.php_cli_user = php_cli_user or None
         # Folder written by dir_backup() in this run (None until it succeeds)
         self.backup_folder = None
         self.runtime_backup = None
@@ -547,15 +549,24 @@ class MoodleBackupManager:
         logging.info(f"Plugin restore completed in {self.runtime_restore_plugins} seconds. Restored: {len(self.restored_plugins)}, already present: {len(self.skipped_plugins)}.")
         return success
 
+    def _php_command(self, script, *args):
+        """Command line for a Moodle CLI script (relative to the Moodle dir). When
+        php_cli_user is set and we are root, it runs as that user via runuser, so
+        core and plugin upgrade code does not execute with root privileges."""
+        command = ['php', os.path.join(self.path, self.moodle, script), *args]
+        if self.php_cli_user and os.geteuid() == 0:
+            command = ['runuser', '-u', self.php_cli_user, '--', *command]
+        return command
+
     def moodle_cli_upgrade(self, moodle_maintenance_mode_flag, force_continue):
         """Upgrading Moodle instance via admin/cli/upgrade.php with pre/post system checks. Returns True on success."""
         start = time.time()
         logging.info("Starting Moodle upgrade via CLI...")
-        moodle_upgrade_script = os.path.join(self.path, self.moodle, "admin/cli/upgrade.php")
+        upgrade_command = self._php_command("admin/cli/upgrade.php", "--non-interactive")
 
         if self.dry_run:
-            logging.info(f"[Dry Run] Would run: php {moodle_upgrade_script} --non-interactive")
-            logging.info(f"[Dry Run] Would run system checks using: php admin/cli/checks.php")
+            logging.info(f"[Dry Run] Would run: {' '.join(upgrade_command)}")
+            logging.info(f"[Dry Run] Would run system checks using: {' '.join(self._php_command('admin/cli/checks.php'))}")
         else:
             # Run pre-upgrade checks
             self.run_moodle_check(before_upgrade=True, force_continue=force_continue)
@@ -567,7 +578,7 @@ class MoodleBackupManager:
                     maintenance_enabled = True
 
                 process = subprocess.Popen(
-                    ['php', moodle_upgrade_script, '--non-interactive'],
+                    upgrade_command,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
                 )
 
@@ -656,20 +667,20 @@ class MoodleBackupManager:
     def moodle_maintenance_mode(self, enable: bool):
         """Enable or disable Moodle maintenance mode."""
         mode = "enable" if enable else "disable"
-        command = f"php {os.path.join(self.path, self.moodle, 'admin/cli/maintenance.php')} --{mode}"
+        # Argument list, no shell: config paths with spaces or metacharacters stay inert.
+        command = self._php_command("admin/cli/maintenance.php", f"--{mode}")
 
         if self.dry_run:
-            logging.info(f"[Dry Run] Would run: {command}")
+            logging.info(f"[Dry Run] Would run: {' '.join(command)}")
         else:
             try:
-                subprocess.run(command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 logging.info(f"Moodle maintenance mode {mode}d successfully.")
             except subprocess.CalledProcessError as e:
                 logging.error(f"Failed to {mode} maintenance mode: {e.stderr}")
 
     def run_moodle_check(self, before_upgrade=True, force_continue=False):
         """Run Moodle system check before or after upgrades, logging results with appropriate log levels."""
-        moodle_checks_script = os.path.join(self.path, self.moodle, "admin/cli/checks.php")
         error = False
         if before_upgrade:
             phase = "before upgrade"
@@ -683,7 +694,7 @@ class MoodleBackupManager:
         try:
             # Run the Moodle check command and capture output (even if it fails)
             result = subprocess.run(
-                ['php', moodle_checks_script],
+                self._php_command("admin/cli/checks.php"),
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
 

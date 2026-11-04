@@ -147,6 +147,7 @@ def main():
         folder_backup_path=folder_backup_path,
         dry_run=dry_run,
         non_interactive=non_interactive,
+        php_cli_user=config.get('settings', 'php_cli_user', fallback='').strip(),
     )
 
     # Keep the lock object referenced for the whole run; closing it releases the lock.
